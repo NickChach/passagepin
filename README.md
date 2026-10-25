@@ -23,15 +23,30 @@ cancellation, ranked page results, extracted-page reading, and opening PDFs in
 the system viewer. A persistent Go worker keeps MiniLM and the active index
 loaded across searches. The renderer has no Node.js or direct filesystem access.
 
-The current desktop packages target Linux x86-64 with glibc 2.38 or newer:
+Page previews show the first 200,000 bytes of extracted text, followed by a
+shortening notice for longer pages. Indexing still uses the full extracted page
+text. Open the PDF in your system viewer to read the complete page.
 
-- `desktop/releases/PassagePin-0.1.0-x86_64.AppImage`
-- `desktop/releases/PassagePin-0.1.0-x64.tar.gz`
+The current desktop packages target Linux x86-64 with glibc 2.38 or newer.
+Download the [PassagePin 0.1.0 AppImage](https://github.com/NickChach/passagepin/releases/download/v.0.1.0/PassagePin-0.1.0-x86_64.AppImage),
+or visit [GitHub Releases](https://github.com/NickChach/passagepin/releases) for
+available versions and assets. From the directory containing the download:
 
-The archive contains `passagepin`, which can be launched from a file
-manager. The app includes Electron and the bundled Go worker; end users need no
-compiler, Node, Go, model download, or CLI setup. Windows/macOS worker bundling
-and release validation remain future work.
+```sh
+chmod +x PassagePin-0.1.0-x86_64.AppImage
+./PassagePin-0.1.0-x86_64.AppImage
+```
+
+After making it executable, you can also launch it from a file manager. The
+AppImage requires an AppImage-capable system, commonly using FUSE.
+
+Local packaging writes the AppImage and `PassagePin-0.1.0-x64.tar.gz` under
+`desktop/releases/`. The archive provides an alternative without the AppImage
+FUSE requirement: extract it and launch `linux-unpacked/passagepin`.
+
+The app includes Electron and the bundled Go worker; end users need no compiler,
+Node, Go, model download, or CLI setup. Windows/macOS worker bundling and release
+validation remain future work.
 
 See `desktop/README.md` for development, packaging, architecture and GUI tests.
 The CLI remains available independently as described below.
@@ -266,9 +281,11 @@ document structure is kept until the reader advances to the next PDF.
 ## Practical limits
 
 - This is similarity ranking, not a yes/no determination that a subject appears.
-  Scores are not probabilities. The default returns up to ten pages scoring at
-  least zero; set `--min-score` for stricter filtering and calibrate it against
-  your documents.
+  Scores are not probabilities. The CLI defaults to up to ten pages; the desktop
+  app defaults to 20, with options for 10, 20, or 50 results. Both default to a
+  minimum similarity of zero. Set `--min-score` in the CLI or adjust Minimum
+  similarity in the desktop app's Search options for stricter filtering, and
+  calibrate the threshold against your documents.
 - One vector averages a page's subjects. A short relevant passage within an
   otherwise unrelated page can rank lower, especially on dense pages. Window
   aggregation covers the full page but differs from a single full-context pass.
@@ -337,4 +354,6 @@ the session. See `docs/worker-protocol.md` for the versioned protocol.
 PassagePin's original source code is licensed under the [MIT License](LICENSE).
 Third-party components and assets remain under their respective licenses. See
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the bundled license notices
-available through the CLI's `licenses` command.
+available through the `licenses` command in bundled executables. Ordinary source
+builds do not embed these notices; consult the notice file and dependency
+licenses directly.
