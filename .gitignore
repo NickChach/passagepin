@@ -1,0 +1,14 @@
+/bin/
+/.models/
+/.runtime/
+/dist/
+/internal/bundle/assets/
+*.index.json
+/desktop/node_modules/
+/desktop/build/
+/desktop/build-electron/
+/desktop/resources/worker/
+/desktop/releases/
+/desktop/test-results/
+/desktop/playwright-report/
+

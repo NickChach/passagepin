@@ -1,0 +1,26 @@
+# Keep the installed-app identity stable across the PassagePin rename.
+appId: local.pdfsearch.desktop
+productName: PassagePin
+asar: true
+npmRebuild: false
+electronDist: node_modules/electron/dist
+# Native Go sidecars must live outside the app.asar archive.
+extraResources:
+  - from: resources/worker
+    to: worker
+files:
+  - build/**
+  - build-electron/**
+  - package.json
+  - assets/icon.png
+directories:
+  output: releases
+  buildResources: assets
+linux:
+  executableName: passagepin
+  syncDesktopName: true
+  icon: assets/icon.png
+  category: Office
+  target:
+    - AppImage
+  artifactName: PassagePin-${version}-${arch}.${ext}
