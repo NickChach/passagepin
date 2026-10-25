@@ -331,3 +331,10 @@ a library's saved index, `index` builds it with structured progress, `search`
 reuses the model and in-memory index, and `page` reads a selected physical page.
 `cancel` can interrupt an active operation, and `shutdown` or stdin EOF releases
 the session. See `docs/worker-protocol.md` for the versioned protocol.
+
+## License
+
+PassagePin's original source code is licensed under the [MIT License](LICENSE).
+Third-party components and assets remain under their respective licenses. See
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the bundled license notices
+available through the CLI's `licenses` command.
