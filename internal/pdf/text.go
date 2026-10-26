@@ -45,15 +45,23 @@ func (o *textOutput) emit(s *textState, text string, advance float64) error {
 	}
 	if text != "" {
 		size := math.Abs(s.size) * math.Hypot(s.ctm[0], s.ctm[1])
+		var separator byte
 		if o.hasPosition && o.text.Len() > 0 {
 			if math.Abs(y-o.y) > max(1, size*.35) || x < o.x-max(2, size) {
-				o.text.WriteByte('\n')
+				separator = '\n'
 			} else if x-o.x > max(0.5, size*.18) {
-				o.text.WriteByte(' ')
+				separator = ' '
 			}
 		}
-		if o.text.Len() > maxStream-len(text) {
+		remaining := maxStream - o.text.Len()
+		if separator != 0 {
+			remaining--
+		}
+		if len(text) > remaining {
 			return fmt.Errorf("extracted page text too large")
+		}
+		if separator != 0 {
+			o.text.WriteByte(separator)
 		}
 		o.text.WriteString(text)
 	}
@@ -163,7 +171,7 @@ func (r *interpreter) show(v value) error {
 	if !r.state.inside || r.state.font == nil {
 		return fmt.Errorf("text shown without BT and a selected font")
 	}
-	text, width, spaces, glyphs, err := r.state.font.decode(raw)
+	text, width, spaces, glyphs, err := r.state.font.decode(raw, maxStream-r.out.text.Len())
 	if err != nil {
 		return err
 	}

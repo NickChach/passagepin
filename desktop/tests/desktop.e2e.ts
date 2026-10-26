@@ -11,7 +11,7 @@ test('Electron searches with one resident worker and remembers the selected them
   const launch = () => electron.launch({
     ...(packaged ? { executablePath: packaged } : {}),
     args: packaged ? [] : [path.resolve('.')],
-    env: { ...process.env, XDG_CONFIG_HOME: path.join(work, 'config'), XDG_CACHE_HOME: path.join(work, 'cache'), PDFSEARCH_E2E: '1', PDFSEARCH_E2E_DATA: path.join(work, 'app-data'), PDFSEARCH_WORKER: path.resolve('../dist/pdfsearch-linux-amd64'), PDFSEARCH_MODEL_DIR: '', ONNXRUNTIME_SHARED_LIBRARY_PATH: '' },
+    env: { ...process.env, XDG_CONFIG_HOME: path.join(work, 'config'), XDG_CACHE_HOME: path.join(work, 'cache'), PDFSEARCH_E2E: '1', PDFSEARCH_E2E_DATA: path.join(work, 'app-data'), PDFSEARCH_WORKER: process.env.PDFSEARCH_WORKER || path.resolve('../dist/pdfsearch-linux-amd64'), PDFSEARCH_MODEL_DIR: process.env.PDFSEARCH_MODEL_DIR || '', ONNXRUNTIME_SHARED_LIBRARY_PATH: process.env.ONNXRUNTIME_SHARED_LIBRARY_PATH || '' },
   });
   let application = await launch();
   let workerPID = 0;

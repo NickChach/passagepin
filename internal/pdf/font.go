@@ -363,17 +363,28 @@ func (d *document) loadFont(v value) (*font, error) {
 			}
 		}
 	}
+	if fd["Widths"] == nil {
+		f.useStandardWidths(enc == nil)
+	}
 	if raw := fd["Widths"]; raw != nil {
 		resolved, err := d.resolve(raw)
 		if err != nil {
 			return nil, err
 		}
 		widths, ok := resolved.(array)
-		first, okFirst := integer(fd["FirstChar"])
+		firstChar, err := d.resolve(fd["FirstChar"])
+		if err != nil {
+			return nil, err
+		}
+		first, okFirst := integer(firstChar)
 		if !ok || !okFirst || first < 0 || first > 255 || len(widths) > 256-int(first) {
 			return nil, fmt.Errorf("invalid simple font widths")
 		}
 		for i, v := range widths {
+			v, err = d.resolve(v)
+			if err != nil {
+				return nil, err
+			}
 			width, ok := number(v)
 			if !ok {
 				return nil, fmt.Errorf("invalid glyph width")
@@ -448,7 +459,7 @@ func type1Encoding(data []byte) (map[byte]string, error) {
 	}
 	return result, nil
 }
-func (f *font) decode(raw []byte) (string, float64, int, int, error) {
+func (f *font) decode(raw []byte, budget int) (string, float64, int, int, error) {
 	var text strings.Builder
 	var width float64
 	spaces := 0
@@ -484,6 +495,11 @@ func (f *font) decode(raw []byte) (string, float64, int, int, error) {
 		width += w
 		if size == 1 && raw[0] == 32 {
 			spaces++
+		}
+		// Bound expansion before allocating, including the text already shown on
+		// this page. A single ToUnicode code can expand to hundreds of runes.
+		if len(chars) > budget-text.Len() {
+			return "", 0, 0, 0, fmt.Errorf("extracted page text too large")
 		}
 		text.WriteString(chars)
 		glyphCount++

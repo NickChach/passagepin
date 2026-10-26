@@ -254,13 +254,17 @@ for text extraction. It supports:
 - ToUnicode CMaps with character and range mappings, UTF-16 surrogate pairs and
   multi-character mappings; horizontal Identity-H CID fonts; Standard, WinAnsi
   and MacRoman encodings with Differences; common explicit built-in encodings
-  in embedded Type 1 fonts.
+  in embedded Type 1 fonts; embedded horizontal metrics for the 14 standard PDF
+  fonts when explicit widths are omitted.
 
 Glyph names are mapped using the embedded
 [Adobe Glyph List](https://github.com/adobe-type-tools/agl-aglfn), with its
 copyright and BSD license retained in `internal/pdf/glyphlist.txt`. Its license
 notice must accompany redistributed binaries as well. The parsing and extraction
-logic is written here; the glyph list supplies character-mapping data.
+logic is written here; the glyph list supplies character-mapping data. Adobe's
+core font metrics are reduced to character codes, glyph names and widths in
+`internal/pdf/standard-fonts.txt`; their notices and distribution terms are
+retained in `THIRD_PARTY_NOTICES.md` and included in bundled releases.
 
 This is not a complete PDF rendering or repair engine. Unsupported features
 needed for extraction return an error, including encrypted files, inline images,

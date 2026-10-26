@@ -2,9 +2,30 @@ package pdf
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"testing"
 )
+
+func TestTruncatedCompositeSyntax(t *testing.T) {
+	for _, raw := range []string{
+		"[", "[(after)", "[1 [2", "[1 % unfinished comment",
+		"<<", "<< /Key", "<< /Key (after)", "<< /Key [1",
+		"(unfinished\\",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			_, err := newSyntax(bytes.NewBufferString(raw), 0).value(0)
+			if !errors.Is(err, io.ErrUnexpectedEOF) {
+				t.Fatalf("expected unexpected EOF for %q, got %v", raw, err)
+			}
+		})
+	}
+	for _, raw := range []string{"", " \n% final comment"} {
+		if _, err := newSyntax(bytes.NewBufferString(raw), 0).value(0); err != io.EOF {
+			t.Fatalf("clean EOF for %q: %v", raw, err)
+		}
+	}
+}
 
 func TestPDFStringSyntax(t *testing.T) {
 	cases := []struct{ raw, want string }{

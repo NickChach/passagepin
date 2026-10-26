@@ -211,7 +211,7 @@ func (p *syntax) literal() (value, error) {
 		case '\\':
 			c, err := p.read()
 			if err != nil {
-				return nil, err
+				return nil, incompleteValue(err)
 			}
 			switch c {
 			case 'n':
@@ -274,7 +274,7 @@ func (p *syntax) value(depth int) (value, error) {
 			for {
 				v, err := p.next()
 				if err != nil {
-					return nil, err
+					return nil, incompleteValue(err)
 				}
 				if k, ok := v.(keyword); ok && k == "]" {
 					return a, nil
@@ -282,7 +282,7 @@ func (p *syntax) value(depth int) (value, error) {
 				p.pushed = append([]value{v}, p.pushed...)
 				item, err := p.value(depth + 1)
 				if err != nil {
-					return nil, err
+					return nil, incompleteValue(err)
 				}
 				a = append(a, item)
 				if len(a) > maxObjects {
@@ -294,7 +294,7 @@ func (p *syntax) value(depth int) (value, error) {
 			for {
 				key, err := p.next()
 				if err != nil {
-					return nil, err
+					return nil, incompleteValue(err)
 				}
 				if k, ok := key.(keyword); ok && k == ">>" {
 					return d, nil
@@ -305,7 +305,7 @@ func (p *syntax) value(depth int) (value, error) {
 				}
 				v, err := p.value(depth + 1)
 				if err != nil {
-					return nil, err
+					return nil, incompleteValue(err)
 				}
 				d[string(n)] = v
 				if len(d) > maxObjects {
@@ -343,6 +343,16 @@ func (p *syntax) value(depth int) (value, error) {
 	}
 	return v, nil
 }
+
+// Only EOF before a new value is clean completion. Once a composite or an
+// escape has started, running out of input means the PDF value is truncated.
+func incompleteValue(err error) error {
+	if err == io.EOF {
+		return io.ErrUnexpectedEOF
+	}
+	return err
+}
+
 func integer(v value) (int64, bool) { n, ok := v.(int64); return n, ok }
 func number(v value) (float64, bool) {
 	switch n := v.(type) {

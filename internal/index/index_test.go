@@ -7,6 +7,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/darkearl/semantic-search/internal/embedding"
@@ -31,6 +32,13 @@ type fakeModel struct{ calls int }
 
 func unit(axis int) []float32                                         { v := make([]float32, embedding.Dimensions); v[axis] = 1; return v }
 func (f *fakeModel) Embed(context.Context, string) ([]float32, error) { f.calls++; return unit(0), nil }
+
+func TestPreviousExtractorIndexNeedsRebuild(t *testing.T) {
+	idx := &Index{Version: 2, Root: t.TempDir(), Model: embedding.ModelID, Fingerprint: "weights"}
+	if err := idx.Validate(); err == nil || !strings.Contains(err.Error(), "rebuild") {
+		t.Fatalf("accepted vectors from the previous extractor: %v", err)
+	}
+}
 
 func TestIncrementalIndexPageNumbersAndDeletion(t *testing.T) {
 	ctx := context.Background()

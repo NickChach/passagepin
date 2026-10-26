@@ -1,10 +1,11 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { EventEmitter } from 'node:events';
 import type { Progress, WorkerReady } from './types';
 
 interface Reply { id?: string; event?: string; data?: unknown; result?: unknown; error?: { code: string; message: string } }
 interface Pending { resolve(value: unknown): void; reject(error: Error): void }
+type WorkerLauncher = (binary: string, args: string[], options: SpawnOptionsWithoutStdio) => ChildProcessWithoutNullStreams;
 
 export class WorkerError extends Error {
   constructor(message: string, public readonly code: string) { super(message); }
@@ -19,13 +20,13 @@ export class WorkerClient extends EventEmitter {
   private stopping = false;
   private stderr = '';
   readonly binary: string;
-  constructor(binary: string, private readonly args: string[] = ['worker', '--threads', '2']) { super(); this.binary = binary; }
+  constructor(binary: string, private readonly args: string[] = ['worker', '--threads', '2'], private readonly launch: WorkerLauncher = spawn) { super(); this.binary = binary; }
 
   start(): Promise<WorkerReady> {
     if (this.readyPromise) return this.readyPromise;
     this.stopping = false;
     this.readyPromise = new Promise((resolve, reject) => {
-      const child = spawn(this.binary, this.args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false });
+      const child = this.launch(this.binary, this.args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, shell: false });
       this.child = child;
       let initialized = false;
       const timer = setTimeout(() => { child.kill(); reject(new Error('The search engine did not start within 90 seconds.')); }, 90_000);
@@ -72,7 +73,7 @@ export class WorkerClient extends EventEmitter {
     const id = String(++this.sequence);
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: (value) => resolve(value as T), reject });
-      if (method === 'index' || method === 'search') this.activeID = id;
+      if (method === 'index' || method === 'search' || method === 'page') this.activeID = id;
       child.stdin.write(JSON.stringify({ id, method, params }) + '\n', (error) => {
         if (error) { this.pending.delete(id); if (this.activeID === id) this.activeID = null; reject(error); }
       });

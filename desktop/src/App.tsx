@@ -98,6 +98,7 @@ export default function App() {
     await perform('restarting', async () => { setState(await window.pdfSearch.restart()); setResults([]); setSelected(null); setPreview(null); setLastQuery(''); });
   }
   const loading = action === 'indexing' || state.operation === 'indexing';
+  const cancellable = state.operation === 'searching' || state.operation === 'reading';
   const canSearch = ready && library?.indexed && library.pages > 0 && !busy && Boolean(query.trim());
   const statusLabel = state.error ? 'Search engine stopped' : ready ? 'Search engine ready' : 'Preparing search engine…';
   const updateText = library?.updated_at ? new Date(library.updated_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
@@ -142,9 +143,10 @@ export default function App() {
       </header>
       {(error || state.error) && <div className="message error" role="alert"><strong>Couldn’t complete that action.</strong><span>{error || state.error}</span></div>}
       {notice && <div className="message notice" role="status">{notice}</div>}
+      {cancellable && <div className="results-heading" role="status"><span>{state.operation === 'reading' ? 'Reading page…' : 'Searching…'}</span><button className="text-button" onClick={() => void window.pdfSearch.cancel().catch((err: unknown) => setError(message(err)))}>{state.operation === 'reading' ? 'Cancel reading' : 'Cancel search'}</button></div>}
 
       {lastQuery ? <section className="search-content" aria-label="Search results">
-        <div className="results-heading"><div><h2>{results.length} ranked {results.length === 1 ? 'page' : 'pages'}</h2><p>For “{lastQuery}”</p></div>{busy && !loading && <button className="text-button" onClick={() => void window.pdfSearch.cancel().catch((err: unknown) => setError(message(err)))}>Cancel search</button>}</div>
+        <div className="results-heading"><div><h2>{results.length} ranked {results.length === 1 ? 'page' : 'pages'}</h2><p>For “{lastQuery}”</p></div></div>
         {results.length === 0 ? <div className="empty-state"><Icon name="search" size={44} /><h2>No pages matched this subject.</h2><p>Try a broader description or lower the minimum similarity in search options.</p></div>
           : <div className="reading-layout"><div className="results-list" role="list" aria-label="Matching pages">{results.map((result, position) => {
             const active = selected?.filename === result.filename && selected.page === result.page;
