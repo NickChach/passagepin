@@ -157,6 +157,12 @@ summary { cursor: pointer; color: var(--muted); }
 .message { display: flex; gap: 8px; flex-wrap: wrap; padding: 13px 18px; margin: 18px 40px 0; border-radius: 5px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .message.error { color: var(--error-ink); background: var(--error-surface); border-left: 3px solid var(--error-border); }
 .message.notice { color: var(--positive-ink); background: var(--notice-surface); }
+.index-report { margin: 18px 40px 0; padding: 14px 18px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; line-height: 1.6; }
+.index-report summary { color: var(--secondary-ink); font-weight: 600; }
+.index-report p { margin-top: 8px; overflow-wrap: anywhere; color: var(--muted); }
+.index-report ul { max-height: 280px; overflow-y: auto; padding-left: 20px; margin-bottom: 0; }
+.index-report li { margin: 14px 0; overflow-wrap: anywhere; }
+.index-report li strong, .index-report li span { display: block; }
 .welcome { min-height: 420px; height: calc(100vh - 220px); padding: 50px 28px 80px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .welcome h2 { font-size: 23px; font-weight: 550; letter-spacing: -.5px; margin-bottom: 14px; }
 .welcome > p { max-width: 390px; line-height: 1.8; color: var(--muted); font-size: 13px; }

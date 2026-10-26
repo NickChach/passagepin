@@ -241,6 +241,16 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			fmt.Fprintf(stderr, "Build wall time: %s; cumulative worker time: hashing %s, extraction %s, embedding (tokenization + inference) %s; saving %s.\n", t.Total, t.Hashing, t.Extraction, t.Embedding, t.Saving)
 		}
 		fmt.Fprintf(stdout, "Saved %s: %d PDFs indexed, %d reused, %d searchable pages, %d empty pages skipped.\n", *path, stats.Indexed, stats.Reused, stats.Pages, stats.EmptyPages)
+		if stats.Recovered > 0 || stats.Skipped > 0 {
+			fmt.Fprintf(stdout, "File report: %d indexed using recovery, %d PDFs skipped.\n", stats.Recovered, stats.Skipped)
+			for _, issue := range stats.Issues {
+				fmt.Fprintf(stderr, "%s: %s", issue.Kind, issue.Filename)
+				if issue.Page > 0 {
+					fmt.Fprintf(stderr, " (page %d)", issue.Page)
+				}
+				fmt.Fprintf(stderr, ": %s\n", issue.Reason)
+			}
+		}
 		if stats.EmptyPages > 0 {
 			fmt.Fprintln(stderr, "Pages without extractable text need OCR before they can be searched.")
 		}

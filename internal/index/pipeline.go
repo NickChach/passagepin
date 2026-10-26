@@ -2,6 +2,7 @@ package index
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/darkearl/semantic-search/internal/embedding"
@@ -77,11 +79,28 @@ type pageJob struct {
 	number   int
 	filename string
 	done     *sync.WaitGroup
+	discard  *atomic.Bool
 }
 
 type documentResult struct {
-	doc    Document
-	reused bool
+	doc     Document
+	reused  bool
+	skipped *FileIssue
+}
+
+func issueReason(err error) string {
+	runes := []rune(err.Error())
+	if len(runes) > 1000 {
+		return string(runes[:1000]) + "…"
+	}
+	return string(runes)
+}
+
+func recoveryInfo(extractor Extractor) string {
+	if reporter, ok := extractor.(interface{ RecoveryInfo() string }); ok {
+		return reporter.RecoveryInfo()
+	}
+	return ""
 }
 
 func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool, old *Index, extractors []Extractor, embedder Embedder, progress io.Writer, emit func(Progress), embeddingWorkers int) (*Index, Stats, error) {
@@ -160,6 +179,27 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 	// Backpressure bounds queued page strings to twice the inference worker count.
 	pages := make(chan pageJob, 2*embeddingWorkers)
 	documents := make(chan documentResult)
+	skip := func(filename string, page int, err error) {
+		if ctx.Err() != nil {
+			fail(ctx.Err())
+			return
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE) || errors.Is(err, syscall.ENOMEM) || errors.Is(err, syscall.EIO) {
+			fail(err)
+			return
+		}
+		issue := FileIssue{Filename: filename, Kind: "skipped", Reason: issueReason(err), Page: page}
+		notify(Progress{Phase: "skipped", Filename: filename, Page: page, Reason: issue.Reason})
+		if progress != nil {
+			outputMu.Lock()
+			fmt.Fprintf(progress, "Skipped: %s: %s\n", filename, issue.Reason)
+			outputMu.Unlock()
+		}
+		select {
+		case documents <- documentResult{skipped: &issue}:
+		case <-ctx.Done():
+		}
+	}
 	var readers, models sync.WaitGroup
 	for i := 0; i < embeddingWorkers; i++ {
 		models.Add(1)
@@ -167,7 +207,7 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 			defer models.Done()
 			for job := range pages {
 				// Drain on cancellation so readers waiting for their pages can exit.
-				if ctx.Err() == nil {
+				if ctx.Err() == nil && !job.discard.Load() {
 					start := time.Now()
 					vector, err := embedder.Embed(ctx, job.text)
 					embeddings.Add(int64(time.Since(start)))
@@ -199,11 +239,11 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 				}
 				digest, err := hash(path)
 				if err != nil {
-					fail(fmt.Errorf("%s: %w", rel, err))
-					return
+					skip(rel, 0, err)
+					continue
 				}
 				if doc, ok := cache[rel]; ok && doc.SHA256 == digest {
-					notify(Progress{Phase: "reused", Filename: rel, Pages: doc.PageCount})
+					notify(Progress{Phase: "reused", Filename: rel, Pages: doc.PageCount, Recovered: doc.Recovery != ""})
 					select {
 					case documents <- documentResult{doc: doc, reused: true}:
 					case <-ctx.Done():
@@ -215,18 +255,22 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 				count, err := extractor.PageCount(ctx, path)
 				extraction.Add(int64(time.Since(start)))
 				if err != nil {
-					fail(fmt.Errorf("%s: %w", rel, err))
-					return
+					skip(rel, 0, err)
+					continue
 				}
 				doc := Document{Filename: rel, SHA256: digest, PageCount: count, Pages: make([]Page, count)}
 				var pending sync.WaitGroup
+				var discard atomic.Bool
+				var readErr error
+				failedPage := 0
 				for page := 1; page <= count && ctx.Err() == nil; page++ {
 					notify(Progress{Phase: "embedding", Filename: rel, Page: page, Pages: count})
 					start := time.Now()
 					text, err := extractor.PageText(ctx, path, page)
 					extraction.Add(int64(time.Since(start)))
 					if err != nil {
-						fail(fmt.Errorf("%s page %d: %w", rel, page, err))
+						readErr, failedPage = err, page
+						discard.Store(true)
 						break
 					}
 					if strings.TrimSpace(text) == "" {
@@ -234,7 +278,7 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 					}
 					pending.Add(1)
 					select {
-					case pages <- pageJob{text: text, page: &doc.Pages[page-1], number: page, filename: rel, done: &pending}:
+					case pages <- pageJob{text: text, page: &doc.Pages[page-1], number: page, filename: rel, done: &pending, discard: &discard}:
 					case <-ctx.Done():
 						pending.Done()
 					}
@@ -245,14 +289,21 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 				if ctx.Err() != nil {
 					return
 				}
+				if readErr != nil {
+					if reason := recoveryInfo(extractor); reason != "" {
+						readErr = fmt.Errorf("%w (cross-reference recovery succeeded; original issue: %s)", readErr, reason)
+					}
+					skip(rel, failedPage, readErr)
+					continue
+				}
 				after, err := hash(path)
 				if err != nil {
-					fail(fmt.Errorf("%s: %w", rel, err))
-					return
+					skip(rel, 0, err)
+					continue
 				}
 				if after != digest {
-					fail(fmt.Errorf("%s changed during indexing; rerun index", rel))
-					return
+					skip(rel, 0, fmt.Errorf("source changed during indexing; retry this PDF"))
+					continue
 				}
 				kept := doc.Pages[:0]
 				for _, page := range doc.Pages {
@@ -261,7 +312,8 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 					}
 				}
 				doc.Pages = kept
-				notify(Progress{Phase: "completed", Filename: rel, Page: count, Pages: count})
+				doc.Recovery = recoveryInfo(extractor)
+				notify(Progress{Phase: "completed", Filename: rel, Page: count, Pages: count, Recovered: doc.Recovery != ""})
 				select {
 				case documents <- documentResult{doc: doc}:
 				case <-ctx.Done():
@@ -303,7 +355,16 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 		close(documents)
 	}()
 	for result := range documents {
+		if result.skipped != nil {
+			stats.Skipped++
+			idx.Issues = append(idx.Issues, *result.skipped)
+			continue
+		}
 		idx.Documents = append(idx.Documents, result.doc)
+		if result.doc.Recovery != "" {
+			stats.Recovered++
+			idx.Issues = append(idx.Issues, FileIssue{Filename: result.doc.Filename, Kind: "recovered", Reason: issueReason(fmt.Errorf("%s", result.doc.Recovery))})
+		}
 		if result.reused {
 			stats.Reused++
 		} else {
@@ -321,5 +382,7 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 	}
 	// Completion order is nondeterministic; the persisted index remains stable.
 	sort.Slice(idx.Documents, func(i, j int) bool { return idx.Documents[i].Filename < idx.Documents[j].Filename })
+	sort.Slice(idx.Issues, func(i, j int) bool { return idx.Issues[i].Filename < idx.Issues[j].Filename })
+	stats.Issues = idx.Issues
 	return idx, stats, nil
 }

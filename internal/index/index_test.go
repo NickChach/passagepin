@@ -87,7 +87,7 @@ func TestIncrementalIndexPageNumbersAndDeletion(t *testing.T) {
 	}
 }
 
-func TestFailedBuildPreservesSavedIndex(t *testing.T) {
+func TestSkippedDocumentBuildDoesNotWriteSavedIndex(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "book.pdf"), []byte("v1"), 0600); err != nil {
 		t.Fatal(err)
@@ -106,12 +106,12 @@ func TestFailedBuildPreservesSavedIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.fail = true
-	if _, _, err := Build(context.Background(), root, "weights", true, nil, e, &fakeModel{}, io.Discard); err == nil {
-		t.Fatal("expected extraction failure")
+	if candidate, stats, err := Build(context.Background(), root, "weights", true, nil, e, &fakeModel{}, io.Discard); err != nil || stats.Skipped != 1 || len(candidate.Documents) != 0 {
+		t.Fatalf("expected the unreadable PDF to be excluded: skipped=%d err=%v", stats.Skipped, err)
 	}
 	after, err := os.ReadFile(path)
 	if err != nil || string(before) != string(after) {
-		t.Fatal("index changed on failed build")
+		t.Fatal("building the candidate overwrote the saved index")
 	}
 	if _, _, err := Build(context.Background(), root, "other-weights", true, idx, e, &fakeModel{}, io.Discard); err == nil {
 		t.Fatal("allowed incompatible model reuse")

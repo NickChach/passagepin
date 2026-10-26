@@ -3,6 +3,7 @@ package pdf
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -16,18 +17,33 @@ type xrefEntry struct {
 type pageInfo struct {
 	object    dict
 	resources value
+	identity  reference
 }
 type document struct {
-	file   *os.File
-	size   int64
-	ctx    context.Context
-	xref   map[int64]xrefEntry
-	cache  map[reference]value
-	active map[reference]bool
-	pages  []pageInfo
+	file       *os.File
+	size       int64
+	ctx        context.Context
+	xref       map[int64]xrefEntry
+	cache      map[reference]value
+	active     map[reference]bool
+	pages      []pageInfo
+	recovery   string
+	recovering bool
 }
 
 func openDocument(ctx context.Context, f *os.File) (*document, error) {
+	d, err := readDocument(ctx, f)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	var structural *xrefError
+	if err != nil && ctx.Err() == nil && errors.As(err, &structural) {
+		return recoverDocument(ctx, f, err)
+	}
+	return d, err
+}
+
+func readDocument(ctx context.Context, f *os.File) (*document, error) {
 	info, err := f.Stat()
 	if err != nil {
 		return nil, err
@@ -50,7 +66,7 @@ func openDocument(ctx context.Context, f *os.File) (*document, error) {
 	}
 	at := bytes.LastIndex(tail, []byte("startxref"))
 	if at < 0 {
-		return nil, fmt.Errorf("missing startxref; damaged PDFs are not repaired automatically")
+		return nil, &xrefError{fmt.Errorf("missing startxref")}
 	}
 	p := newSyntax(bytes.NewReader(tail[at+9:]), 0)
 	raw, err := p.next()
@@ -59,7 +75,7 @@ func openDocument(ctx context.Context, f *os.File) (*document, error) {
 	}
 	offset, ok := integer(raw)
 	if !ok {
-		return nil, fmt.Errorf("invalid startxref offset")
+		return nil, &xrefError{fmt.Errorf("invalid startxref offset")}
 	}
 	var root value
 	visited := map[int64]bool{}
@@ -73,12 +89,12 @@ func openDocument(ctx context.Context, f *os.File) (*document, error) {
 		visited[offset] = true
 		entries, trailer, err := d.xrefSection(offset)
 		if err != nil {
-			return nil, err
+			return nil, &xrefError{err}
 		}
 		if hybrid, ok := integer(trailer["XRefStm"]); ok {
 			extra, _, err := d.xrefStream(hybrid)
 			if err != nil {
-				return nil, err
+				return nil, &xrefError{err}
 			}
 			for id, e := range extra {
 				entries[id] = e
@@ -134,8 +150,12 @@ func (d *document) parser(offset int64) (*syntax, error) {
 func (d *document) indirect(offset int64) (reference, value, error) {
 	p, err := d.parser(offset)
 	if err != nil {
-		return reference{}, nil, err
+		return reference{}, nil, &xrefError{err}
 	}
+	return d.readIndirect(p, offset)
+}
+
+func (d *document) readIndirect(p *syntax, offset int64) (reference, value, error) {
 	n, err := p.next()
 	if err != nil {
 		return reference{}, nil, err
@@ -151,7 +171,7 @@ func (d *document) indirect(offset int64) (reference, value, error) {
 	id, ok := integer(n)
 	gen, okGen := integer(g)
 	if !ok || !okGen || op != keyword("obj") {
-		return reference{}, nil, fmt.Errorf("invalid indirect object at %d", offset)
+		return reference{}, nil, &xrefError{fmt.Errorf("invalid indirect object at %d", offset)}
 	}
 	v, err := p.value(0)
 	if err != nil {
@@ -214,18 +234,18 @@ func (d *document) resolve(v value) (value, error) {
 func (d *document) resolveObject(ref reference) (value, error) {
 	entry, ok := d.xref[ref.number]
 	if !ok || entry.kind == 0 {
-		return nil, fmt.Errorf("missing object %d", ref.number)
+		return nil, &xrefError{fmt.Errorf("missing object %d", ref.number)}
 	}
 	if entry.kind == 1 {
 		if entry.generation != ref.generation {
-			return nil, fmt.Errorf("object generation mismatch for %d", ref.number)
+			return nil, &xrefError{fmt.Errorf("object generation mismatch for %d", ref.number)}
 		}
 		got, v, err := d.indirect(entry.offset)
 		if err != nil {
 			return nil, err
 		}
 		if got != ref {
-			return nil, fmt.Errorf("cross-reference points to wrong object")
+			return nil, &xrefError{fmt.Errorf("cross-reference points to wrong object")}
 		}
 		return v, nil
 	}
@@ -307,6 +327,14 @@ func (d *document) xrefSection(offset int64) (map[int64]xrefEntry, dict, error) 
 	if token != keyword("xref") {
 		return d.xrefStream(offset)
 	}
+	return d.classicXref(p)
+}
+
+func (d *document) classicXref(p *syntax) (map[int64]xrefEntry, dict, error) {
+	limit := int64(maxObjects)
+	if d.recovering {
+		limit = maxRecoveryObjects
+	}
 	entries := map[int64]xrefEntry{}
 	for {
 		token, err := p.next()
@@ -330,7 +358,7 @@ func (d *document) xrefSection(offset int64) (map[int64]xrefEntry, dict, error) 
 			return nil, nil, err
 		}
 		count, okCount := integer(countRaw)
-		if !ok || !okCount || start < 0 || count < 0 || start > maxObjects || count > maxObjects-start {
+		if !ok || !okCount || start < 0 || count < 0 || start > limit || count > limit-start || int64(len(entries))+count > limit {
 			return nil, nil, fmt.Errorf("invalid cross-reference subsection")
 		}
 		for i := int64(0); i < count; i++ {
@@ -465,7 +493,8 @@ func (d *document) walkPages(v value, resources value, visited map[reference]boo
 		if len(d.pages) >= maxObjects {
 			return fmt.Errorf("too many pages")
 		}
-		d.pages = append(d.pages, pageInfo{node, resources})
+		identity, _ := v.(reference)
+		d.pages = append(d.pages, pageInfo{object: node, resources: resources, identity: identity})
 		return nil
 	case name("Pages"):
 		children, err := d.resolve(node["Kids"])

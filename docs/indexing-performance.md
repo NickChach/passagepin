@@ -20,9 +20,10 @@ results using the real pinned model and runtime.
 Window order and pooling within a page are unchanged, so existing indexes and
 model fingerprints remain compatible. Completion order does not affect saved
 document or page order. File hashes are checked before reading and again after
-all embeddings for that PDF finish. Errors or cancellation stop the pipeline,
-drain outstanding jobs, close readers, and leave the previous saved and
-in-memory index available.
+all embeddings for that PDF finish. Individual document failures discard that
+PDF's work and produce a skipped-file report while other readers continue.
+Fatal errors or cancellation stop the pipeline, drain outstanding jobs, close
+readers, and leave the previous saved and in-memory index available.
 
 ## Measure a library
 

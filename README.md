@@ -191,8 +191,12 @@ they may differ from printed page labels.
 Run `index` again with the same directory and index path to update it. SHA-256
 content hashes let it reuse unchanged PDFs; changed PDFs are re-embedded and
 deleted PDFs disappear. Use `--rebuild` when changing the directory, model, or
-embedding pipeline. Any extraction or inference error aborts the update and
-leaves the previous saved index intact. Avoid running multiple index writers
+embedding pipeline. Unreadable PDFs are skipped as complete documents, with
+filenames and reasons in the saved indexing report; the remaining PDFs continue.
+Supported cross-reference damage is recovered in memory without changing source
+files. Cancellation, inference failures, directory traversal failures, and index
+write failures still abort the update and leave the previous saved index intact.
+Avoid running multiple index writers
 against the same index path at once.
 
 Indexing overlaps PDF reading with embedding. By default, up to two independent
@@ -307,8 +311,11 @@ document structure is kept until the reader advances to the next PDF.
   other languages may be lower.
 - Scanned image-only pages need OCR first. Pages with no extractable text are
   skipped with a summary; blank pages still count toward physical numbering.
-- Corrupt, password-protected, or unreadable PDFs can stop indexing. The previous
-  index remains available. Symlinks to PDFs or directories are not followed.
+- Corrupt, password-protected, or unreadable PDFs are skipped and reported.
+  Incomplete embeddings and outdated embeddings from changed, unreadable files
+  are excluded from the updated index. Recovery supports a bounded subset of
+  classic cross-reference damage; see [PDF recovery](docs/pdf-recovery.md).
+  Symlinks to PDFs or directories are not followed.
 - The JSON index is loaded into memory and searched exactly, in linear time.
   This is suitable for a local library; very large collections will eventually
   benefit from a disk-backed vector index. Text extraction quality depends on

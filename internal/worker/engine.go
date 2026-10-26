@@ -30,13 +30,14 @@ type Engine struct {
 }
 
 type Library struct {
-	Directory  string     `json:"directory"`
-	Indexed    bool       `json:"indexed"`
-	Documents  int        `json:"documents"`
-	Pages      int        `json:"pages"`
-	EmptyPages int        `json:"empty_pages"`
-	UpdatedAt  *time.Time `json:"updated_at"`
-	Issue      string     `json:"issue,omitempty"`
+	Directory  string            `json:"directory"`
+	Indexed    bool              `json:"indexed"`
+	Documents  int               `json:"documents"`
+	Pages      int               `json:"pages"`
+	EmptyPages int               `json:"empty_pages"`
+	UpdatedAt  *time.Time        `json:"updated_at"`
+	Issue      string            `json:"issue,omitempty"`
+	Issues     []index.FileIssue `json:"issues,omitempty"`
 }
 
 func New(model Model, fingerprint string) *Engine {
@@ -50,6 +51,7 @@ func NewWithOptions(model Model, fingerprint string, options index.Options) *Eng
 func (e *Engine) summary() Library {
 	l := Library{Directory: e.directory, Indexed: e.idx != nil, Issue: e.issue}
 	if e.idx != nil {
+		l.Issues = e.idx.Issues
 		l.Documents = len(e.idx.Documents)
 		l.UpdatedAt = &e.idx.UpdatedAt
 		for _, doc := range e.idx.Documents {

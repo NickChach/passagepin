@@ -100,7 +100,11 @@ filename, page count, and progress bar for each active PDF until its completion
 event arrives. Reused PDFs update a count without replacing active rows.
 Cancellation takes effect
 between bounded model calls and waits for workers to finish. Successful index
-updates are saved atomically; failed/cancelled builds keep the last saved index.
+updates are saved atomically; fatal failures and cancellation keep the last saved
+index. Individual unreadable PDFs are skipped, while supported cross-reference
+damage is recovered in memory. A persistent **Indexing report** shows skipped
+and recovered filenames and reasons, including after restarting the app. Skipped
+documents contribute no partial or stale results. See [PDF recovery](../docs/pdf-recovery.md).
 See [indexing performance](../docs/indexing-performance.md) for tuning and
 offline measurements. Rebuild the Go worker with `make bundle` from the repository
 root when changing core indexing code; `npm run build` alone rebuilds Electron.

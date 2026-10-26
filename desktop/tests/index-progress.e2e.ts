@@ -91,9 +91,12 @@ test('concurrent PDFs keep separate progress rows through completion, cancellati
     ]);
     await expect(files.locator('.index-file-name')).toHaveText([second, third]);
     await expect(panel.getByText('1 processed, 2 unchanged PDFs reused')).toBeVisible();
+    await emit([{ phase: 'skipped', filename: third, page: 2, reason: 'Unreadable page' }]);
+    await expect(bar(third)).toHaveCount(0);
+    await expect(bar(second)).toHaveAttribute('value', '3');
+    await expect(panel.getByText('1 processed, 2 unchanged PDFs reused, 1 skipped')).toBeVisible();
     await emit([
       { phase: 'completed', filename: second, page: 12, pages: 12 },
-      { phase: 'completed', filename: third, page: 8, pages: 8 },
     ]);
     await expect(files).toHaveCount(0);
     await expect(panel.getByText('Updating your library…')).toBeVisible();

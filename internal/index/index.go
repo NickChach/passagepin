@@ -29,15 +29,24 @@ type Document struct {
 	SHA256    string `json:"sha256"`
 	PageCount int    `json:"page_count"`
 	Pages     []Page `json:"pages"`
+	Recovery  string `json:"recovery,omitempty"`
 }
 
 type Index struct {
-	Version     int        `json:"version"`
-	Root        string     `json:"root"`
-	Model       string     `json:"model"`
-	Fingerprint string     `json:"fingerprint"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	Documents   []Document `json:"documents"`
+	Version     int         `json:"version"`
+	Root        string      `json:"root"`
+	Model       string      `json:"model"`
+	Fingerprint string      `json:"fingerprint"`
+	UpdatedAt   time.Time   `json:"updated_at"`
+	Documents   []Document  `json:"documents"`
+	Issues      []FileIssue `json:"issues,omitempty"`
+}
+
+type FileIssue struct {
+	Filename string `json:"filename"`
+	Kind     string `json:"kind"` // recovered or skipped
+	Reason   string `json:"reason"`
+	Page     int    `json:"page,omitempty"`
 }
 
 type Extractor interface {
@@ -50,11 +59,14 @@ type Embedder interface {
 }
 
 type Stats struct {
-	Indexed    int     `json:"indexed"`
-	Reused     int     `json:"reused"`
-	Pages      int     `json:"pages"`
-	EmptyPages int     `json:"empty_pages"`
-	Timings    Timings `json:"timings"`
+	Indexed    int         `json:"indexed"`
+	Reused     int         `json:"reused"`
+	Pages      int         `json:"pages"`
+	EmptyPages int         `json:"empty_pages"`
+	Timings    Timings     `json:"timings"`
+	Recovered  int         `json:"recovered"`
+	Skipped    int         `json:"skipped"`
+	Issues     []FileIssue `json:"issues,omitempty"`
 }
 
 // Timings are cumulative worker time, except Total (build wall time) and Saving.
@@ -68,10 +80,12 @@ type Timings struct {
 }
 
 type Progress struct {
-	Phase    string `json:"phase"`
-	Filename string `json:"filename,omitempty"`
-	Page     int    `json:"page,omitempty"`
-	Pages    int    `json:"pages,omitempty"`
+	Phase     string `json:"phase"`
+	Filename  string `json:"filename,omitempty"`
+	Page      int    `json:"page,omitempty"`
+	Pages     int    `json:"pages,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	Recovered bool   `json:"recovered,omitempty"`
 }
 
 func Load(path string) (*Index, error) {
@@ -100,6 +114,11 @@ func (idx *Index) Validate() error {
 		return fmt.Errorf("incompatible index; rebuild with pdfsearch index --rebuild")
 	}
 	seen := make(map[string]bool)
+	for _, issue := range idx.Issues {
+		if !filepath.IsLocal(issue.Filename) || issue.Filename == "." || (issue.Kind != "skipped" && issue.Kind != "recovered") || issue.Reason == "" || issue.Page < 0 {
+			return fmt.Errorf("invalid index file issue")
+		}
+	}
 	for _, doc := range idx.Documents {
 		if doc.Filename == "." || !filepath.IsLocal(doc.Filename) || seen[doc.Filename] || len(doc.SHA256) != 64 || doc.PageCount < 1 {
 			return fmt.Errorf("invalid index document %q", doc.Filename)

@@ -21,6 +21,7 @@ import (
 type fakeModel struct {
 	calls   atomic.Int32
 	started chan struct{}
+	failure error
 }
 
 func TestConcurrentCancellationPreservesPreviousLibrary(t *testing.T) {
@@ -58,6 +59,9 @@ func TestConcurrentCancellationPreservesPreviousLibrary(t *testing.T) {
 }
 
 func (m *fakeModel) Embed(ctx context.Context, text string) ([]float32, error) {
+	if m.failure != nil {
+		return nil, m.failure
+	}
 	m.calls.Add(1)
 	if m.started != nil {
 		select {
@@ -74,6 +78,51 @@ func (m *fakeModel) Embed(ctx context.Context, text string) ([]float32, error) {
 		v[0] = 1
 	}
 	return v, nil
+}
+
+func TestPartialLibraryReportsAndFatalFailuresPreserveState(t *testing.T) {
+	root, path := library(t)
+	if err := os.WriteFile(filepath.Join(root, "broken.pdf"), []byte("broken"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	model := &fakeModel{}
+	engine := New(model, "weights")
+	if _, err := engine.Handle(context.Background(), request("open", map[string]string{"directory": root, "index_path": path}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Handle(context.Background(), request("index", nil), nil); err != nil {
+		t.Fatal(err)
+	}
+	previous := engine.idx
+	before, _ := os.ReadFile(path)
+	if len(engine.summary().Issues) != 1 || engine.summary().Issues[0].Filename != "broken.pdf" {
+		t.Fatal("missing partial library report")
+	}
+	reopened := New(model, "weights")
+	if _, err := reopened.Handle(context.Background(), request("open", map[string]string{"directory": root, "index_path": path}), nil); err != nil || len(reopened.summary().Issues) != 1 {
+		t.Fatalf("report lost on reopen: %v", err)
+	}
+	model.failure = errors.New("inference failed")
+	if _, err := engine.Handle(context.Background(), request("index", map[string]bool{"rebuild": true}), nil); !errors.Is(err, model.failure) {
+		t.Fatalf("model error was swallowed: %v", err)
+	}
+	after, _ := os.ReadFile(path)
+	if engine.idx != previous || !bytes.Equal(before, after) {
+		t.Fatal("model failure replaced saved library")
+	}
+	model.failure = nil
+	blocked := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocked, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	engine.indexPath = filepath.Join(blocked, "index.json")
+	if _, err := engine.Handle(context.Background(), request("index", map[string]bool{"rebuild": true}), nil); err == nil {
+		t.Fatal("index-write failure was swallowed")
+	}
+	after, _ = os.ReadFile(path)
+	if engine.idx != previous || !bytes.Equal(before, after) {
+		t.Fatal("save failure replaced previous library")
+	}
 }
 func request(method string, params any) Request {
 	raw, _ := json.Marshal(params)

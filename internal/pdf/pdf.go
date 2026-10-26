@@ -4,8 +4,10 @@ package pdf
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"reflect"
 )
 
 // Extractor keeps one file open and caches only document structure. Page content
@@ -17,6 +19,12 @@ type Extractor struct {
 }
 
 func New() (*Extractor, error) { return &Extractor{}, nil }
+func (e *Extractor) RecoveryInfo() string {
+	if e.doc == nil {
+		return ""
+	}
+	return e.doc.recovery
+}
 func (e *Extractor) Close() error {
 	if e.doc == nil {
 		return nil
@@ -66,5 +74,25 @@ func (e *Extractor) PageText(ctx context.Context, path string, page int) (string
 	if page < 1 || page > len(d.pages) {
 		return "", fmt.Errorf("page %d out of range (1–%d)", page, len(d.pages))
 	}
-	return d.pageText(ctx, d.pages[page-1])
+	text, err := d.pageText(ctx, d.pages[page-1])
+	var structural *xrefError
+	if err == nil || d.recovery != "" || ctx.Err() != nil || !errors.As(err, &structural) {
+		return text, err
+	}
+	recovered, recoveryErr := recoverDocument(ctx, d.file, err)
+	if recoveryErr != nil {
+		return "", recoveryErr
+	}
+	// Earlier pages may already be embedded. Recovery must preserve their tree
+	// identities, page dictionaries and inherited resource associations.
+	if len(recovered.pages) != len(d.pages) {
+		return "", fmt.Errorf("recovery changed page numbering")
+	}
+	for i := range d.pages {
+		if d.pages[i].identity != recovered.pages[i].identity || !reflect.DeepEqual(d.pages[i].object, recovered.pages[i].object) || !reflect.DeepEqual(d.pages[i].resources, recovered.pages[i].resources) {
+			return "", fmt.Errorf("recovery changed page structure")
+		}
+	}
+	e.doc = recovered
+	return recovered.pageText(ctx, recovered.pages[page-1])
 }

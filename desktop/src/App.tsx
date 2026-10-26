@@ -78,7 +78,8 @@ export default function App() {
       const result = await window.pdfSearch.index(Boolean(library?.issue));
       setState((s) => ({ ...s, library: result.library }));
       setResults([]); setSelected(null); setPreview(null); setLastQuery('');
-      setNotice(`${result.stats.pages.toLocaleString()} searchable pages are ready. ${result.stats.reused ? `${result.stats.reused} unchanged PDFs reused.` : ''}`);
+      const summary = result.stats.pages > 0 ? `${result.stats.pages.toLocaleString()} searchable pages are ready.` : 'No searchable pages were indexed.';
+      setNotice(`${summary} ${result.stats.indexed} PDFs indexed, ${result.stats.reused} unchanged PDFs reused. ${result.stats.recovered || result.stats.skipped ? `${result.stats.recovered ?? 0} indexed using recovery, ${result.stats.skipped ?? 0} skipped. See the indexing report for details.` : ''}`);
     });
   }
   async function readPage(result: SearchResult) {
@@ -100,6 +101,9 @@ export default function App() {
   }
   const loading = action === 'indexing' || state.operation === 'indexing';
   const activePDFs = [...progress.active.values()];
+  const fileIssues = library?.issues ?? [];
+  const skippedFiles = fileIssues.filter((issue) => issue.kind === 'skipped').length;
+  const recoveredFiles = fileIssues.filter((issue) => issue.kind === 'recovered').length;
   const cancellable = state.operation === 'searching' || state.operation === 'reading';
   const canSearch = ready && library?.indexed && library.pages > 0 && !busy && Boolean(query.trim());
   const statusLabel = state.error ? 'Search engine stopped' : ready ? 'Search engine ready' : 'Preparing search engine…';
@@ -126,8 +130,8 @@ export default function App() {
             <strong className="index-file-name" title={file.filename}>{file.filename}</strong>
             <span className="index-file-page">Page {file.page} of {file.pages}</span>
             <progress max={file.pages} value={file.page} aria-label={`Indexing ${file.filename}`} />
-          </li>)}</ul> : <p className="index-progress-message">{progress.completed || progress.reused ? 'Updating your library…' : 'Reading your PDFs…'}</p>}
-          {(progress.completed > 0 || progress.reused > 0) && <p className="index-progress-summary">{progress.completed} processed, {progress.reused} unchanged {progress.reused === 1 ? 'PDF' : 'PDFs'} reused</p>}
+          </li>)}</ul> : <p className="index-progress-message">{progress.completed || progress.reused || progress.skipped ? 'Updating your library…' : 'Reading your PDFs…'}</p>}
+          {(progress.completed > 0 || progress.reused > 0 || progress.skipped > 0) && <p className="index-progress-summary">{progress.completed} processed, {progress.reused} unchanged {progress.reused === 1 ? 'PDF' : 'PDFs'} reused{progress.skipped > 0 ? `, ${progress.skipped} skipped` : ''}{progress.recovered > 0 ? `, ${progress.recovered} using recovery` : ''}</p>}
           <button className="text-button" onClick={() => void window.pdfSearch.cancel().catch((err: unknown) => setError(message(err)))}>Cancel indexing</button>
         </section>}
       </div>}
@@ -149,6 +153,15 @@ export default function App() {
       </header>
       {(error || state.error) && <div className="message error" role="alert"><strong>Couldn’t complete that action.</strong><span>{error || state.error}</span></div>}
       {notice && <div className="message notice" role="status">{notice}</div>}
+      {!loading && fileIssues.length > 0 && <section className="index-report" aria-label="Indexing report"><details>
+        <summary>Indexing report: {skippedFiles} skipped, {recoveredFiles} indexed using recovery</summary>
+        <p>Skipped PDFs are excluded from search results. Original files are unchanged.</p>
+        <ul>{fileIssues.map((issue) => <li key={`${issue.kind}:${issue.filename}`}>
+          <strong>{issue.filename}</strong>
+          <span>{issue.kind === 'skipped' ? 'Skipped' : 'Indexed using recovery'}{issue.page ? ` (page ${issue.page})` : ''}</span>
+          <p>{issue.kind === 'recovered' ? 'Original reading issue: ' : ''}{issue.reason}</p>
+        </li>)}</ul>
+      </details></section>}
       {cancellable && <div className="results-heading" role="status"><span>{state.operation === 'reading' ? 'Reading page…' : 'Searching…'}</span><button className="text-button" onClick={() => void window.pdfSearch.cancel().catch((err: unknown) => setError(message(err)))}>{state.operation === 'reading' ? 'Cancel reading' : 'Cancel search'}</button></div>}
 
       {lastQuery ? <section className="search-content" aria-label="Search results">

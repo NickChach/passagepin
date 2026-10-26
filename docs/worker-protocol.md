@@ -38,9 +38,15 @@ Each request has one terminal `result` or `error` response with the same ID:
 ```
 
 Library summaries contain `directory`, `indexed`, `documents`, `pages`,
-`empty_pages`, `updated_at`, and optional `issue`. Index results contain a
+`empty_pages`, `updated_at`, optional `issue` (incompatible index), and optional
+`issues` (per-file reports). Index results contain a
 `library` summary and `stats` (`indexed`, `reused`, `pages`, `empty_pages`,
-`timings`). Timings contain `hashing_ns`, `extraction_ns`, `embedding_ns`,
+`timings`, `recovered`, `skipped`, and optional `issues`). Each file issue has
+`filename`, `kind` (`recovered` or `skipped`), `reason`, and an optional physical
+`page` for extraction failures. Reports are persisted in the index. `recovered`
+counts indexed documents using recovery, including reused recovered documents.
+It is a subset of `indexed + reused`, not an additional document count.
+Timings contain `hashing_ns`, `extraction_ns`, `embedding_ns`,
 `total_ns`, and `saving_ns`. Stage times are cumulative across workers and can
 exceed the build wall time (`total_ns`); embedding includes tokenization and
 inference. Saving is measured separately from the build. Page
@@ -55,7 +61,8 @@ Indexing sends additional progress events without completing the request:
 {"id":"2","event":"progress","data":{"phase":"embedding","filename":"energy.pdf","page":3,"pages":12}}
 ```
 
-Phases are `discovering`, `reused`, `embedding`, and `completed`. `pages` is the physical page
+Phases are `discovering`, `reused`, `embedding`, `completed`, and `skipped`.
+`pages` is the physical page
 count of the current PDF, not a total across the library.
 Events are serialized, but events from different PDFs may interleave. An
 `embedding` event marks a page entering the extraction/embedding pipeline,
@@ -65,6 +72,8 @@ check have all finished. It includes `filename`, `page`, and `pages` (both page
 fields equal the physical page count). Clients should keep independent active
 progress entries keyed by the full relative filename and remove each entry on
 `completed` or `reused`, rather than treating the last page event as completion.
+A `skipped` event also removes an active PDF, with `reason` and an optional
+physical `page`. `completed` and `reused` can include `recovered: true`.
 `discovering` starts a fresh progress snapshot; terminal success, cancellation,
 failure, and worker restart clear the active entries.
 
@@ -77,7 +86,10 @@ Cancellation is handled while an operation is running:
 It responds with `{"cancelled":true}` when the active ID matched. The operation
 subsequently returns an error with code `cancelled`; response ordering is not
 fixed. Cancellation is cooperative between bounded inference calls. Failed or
-cancelled builds preserve the previous saved index and in-memory library.
+cancelled builds preserve the previous saved index and in-memory library. An
+individual PDF read/extraction failure is a successful partial update with a
+file report; it does not fail the request. Model failures, traversal failures,
+process/disk resource errors and index-write failures remain fatal.
 All indexing workers finish and owned PDF readers close before a terminal
 response is sent. The index is sorted into filename and physical-page order
 before saving, independent of worker completion order.

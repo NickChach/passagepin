@@ -233,7 +233,17 @@ func TestPipelineFailuresAndSourceChanges(t *testing.T) {
 				}
 				return unit(0), nil
 			})
-			idx, _, err := BuildConcurrent(ctx, root, "weights", true, nil, factory, model, io.Discard, nil, Options{2, 2})
+			idx, stats, err := BuildConcurrent(ctx, root, "weights", true, nil, factory, model, io.Discard, nil, Options{2, 2})
+			if failure == "extraction" || failure == "changed-source" {
+				want := 4
+				if failure == "changed-source" {
+					want = 1
+				}
+				if err != nil || idx == nil || stats.Skipped != want || len(idx.Documents) != 4-want || closed.Load() != 2 {
+					t.Fatalf("skip failed: stats=%+v err=%v closed=%d", stats, err, closed.Load())
+				}
+				return
+			}
 			if err == nil || idx != nil || closed.Load() != 2 || errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("idx=%v err=%v closed=%d", idx, err, closed.Load())
 			}
