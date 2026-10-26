@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import type { Library, PageText, Progress, SearchResult, State } from '../electron/types';
+import type { Library, PageText, SearchResult, State } from '../electron/types';
 import { saveTheme, type Theme } from './theme';
+import { emptyIndexProgress, updateIndexProgress } from './index-progress';
 
 function Icon({ name, size = 20 }: { name: 'folder' | 'search' | 'document' | 'refresh' | 'arrow' | 'lock' | 'moon'; size?: number }) {
   const paths: Record<string, ReactNode> = {
@@ -27,7 +28,7 @@ export default function App() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selected, setSelected] = useState<SearchResult | null>(null);
   const [preview, setPreview] = useState<PageText | null>(null);
-  const [progress, setProgress] = useState<Progress | null>(null);
+  const [progress, setProgress] = useState(emptyIndexProgress);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [top, setTop] = useState(20);
@@ -45,11 +46,11 @@ export default function App() {
     if (!window.pdfSearch) { setError('Open PassagePin as a desktop application.'); return; }
     const unsubscribe = window.pdfSearch.onEvent((event) => {
       if (event.kind === 'ready') setState((s) => ({ ...s, ready: event.data, error: null }));
-      if (event.kind === 'starting') setState((s) => ({ ...s, ready: null, error: null }));
-      if (event.kind === 'failed') setState((s) => ({ ...s, ready: null, error: event.data }));
-      if (event.kind === 'operation') setState((s) => ({ ...s, operation: event.data }));
+      if (event.kind === 'starting') { setState((s) => ({ ...s, ready: null, error: null })); setProgress(emptyIndexProgress()); }
+      if (event.kind === 'failed') { setState((s) => ({ ...s, ready: null, error: event.data })); setProgress(emptyIndexProgress()); }
+      if (event.kind === 'operation') { setState((s) => ({ ...s, operation: event.data })); setProgress(emptyIndexProgress()); }
       if (event.kind === 'library') setState((s) => ({ ...s, library: event.data }));
-      if (event.kind === 'progress') setProgress(event.data);
+      if (event.kind === 'progress') setProgress((current) => updateIndexProgress(current, event.data));
     });
     void window.pdfSearch.getState().then(setState).catch((err: unknown) => setError(message(err)));
     return unsubscribe;
@@ -68,12 +69,12 @@ export default function App() {
     await perform('opening', async () => {
       const chosen = await window.pdfSearch.chooseFolder();
       if (!chosen) return;
-      setState((s) => ({ ...s, library: chosen })); setResults([]); setSelected(null); setPreview(null); setLastQuery(''); setProgress(null);
+      setState((s) => ({ ...s, library: chosen })); setResults([]); setSelected(null); setPreview(null); setLastQuery(''); setProgress(emptyIndexProgress());
     });
   }
   async function indexFolder() {
     await perform('indexing', async () => {
-      setProgress(null);
+      setProgress(emptyIndexProgress());
       const result = await window.pdfSearch.index(Boolean(library?.issue));
       setState((s) => ({ ...s, library: result.library }));
       setResults([]); setSelected(null); setPreview(null); setLastQuery('');
@@ -98,6 +99,7 @@ export default function App() {
     await perform('restarting', async () => { setState(await window.pdfSearch.restart()); setResults([]); setSelected(null); setPreview(null); setLastQuery(''); });
   }
   const loading = action === 'indexing' || state.operation === 'indexing';
+  const activePDFs = [...progress.active.values()];
   const cancellable = state.operation === 'searching' || state.operation === 'reading';
   const canSearch = ready && library?.indexed && library.pages > 0 && !busy && Boolean(query.trim());
   const statusLabel = state.error ? 'Search engine stopped' : ready ? 'Search engine ready' : 'Preparing search engine…';
@@ -118,12 +120,16 @@ export default function App() {
         {library.issue && <p className="small-warning">The saved index needs rebuilding before it can be searched.</p>}
         <button className="button primary wide" disabled={!ready || busy} onClick={() => void indexFolder()}><Icon name="refresh" size={17} />{library.issue ? 'Rebuild index' : library.indexed ? 'Update index' : 'Index folder'}</button>
         {library.empty_pages > 0 && <p className="small-warning">{library.empty_pages} {library.empty_pages === 1 ? 'page had' : 'pages had'} no extractable text. Scanned pages need OCR.</p>}
-        {loading && <div className="index-progress" role="status" aria-live="polite">
-          <strong>{progress?.phase === 'embedding' ? `Page ${progress.page} of ${progress.pages}` : progress?.phase === 'reused' ? 'Reusing unchanged PDF' : 'Reading your PDFs…'}</strong>
-          {progress?.phase === 'embedding' && <progress max={progress.pages} value={progress.page} aria-label="Current PDF page progress" />}
-          <p title={progress?.filename}>{progress?.filename || 'Finding PDF files in this folder'}</p>
+        {loading && <section className="index-progress" aria-label="Indexing progress">
+          <strong role="status">Indexing PDFs…</strong>
+          {activePDFs.length > 0 ? <ul className="index-file-list" aria-label="PDFs being indexed">{activePDFs.map((file) => <li key={file.filename} className="index-file">
+            <strong className="index-file-name" title={file.filename}>{file.filename}</strong>
+            <span className="index-file-page">Page {file.page} of {file.pages}</span>
+            <progress max={file.pages} value={file.page} aria-label={`Indexing ${file.filename}`} />
+          </li>)}</ul> : <p className="index-progress-message">{progress.completed || progress.reused ? 'Updating your library…' : 'Reading your PDFs…'}</p>}
+          {(progress.completed > 0 || progress.reused > 0) && <p className="index-progress-summary">{progress.completed} processed, {progress.reused} unchanged {progress.reused === 1 ? 'PDF' : 'PDFs'} reused</p>}
           <button className="text-button" onClick={() => void window.pdfSearch.cancel().catch((err: unknown) => setError(message(err)))}>Cancel indexing</button>
-        </div>}
+        </section>}
       </div>}
       <div className="sidebar-footer">
         <button type="button" className="theme-toggle" role="switch" aria-label="Dark mode" aria-checked={theme === 'dark'} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} onClick={toggleTheme}>

@@ -55,11 +55,18 @@ Indexing sends additional progress events without completing the request:
 {"id":"2","event":"progress","data":{"phase":"embedding","filename":"energy.pdf","page":3,"pages":12}}
 ```
 
-Phases are `discovering`, `reused`, and `embedding`. `pages` is the physical page
+Phases are `discovering`, `reused`, `embedding`, and `completed`. `pages` is the physical page
 count of the current PDF, not a total across the library.
 Events are serialized, but events from different PDFs may interleave. An
 `embedding` event marks a page entering the extraction/embedding pipeline,
 including a blank page which will subsequently be skipped.
+A `completed` event identifies a PDF whose page embeddings and final source-hash
+check have all finished. It includes `filename`, `page`, and `pages` (both page
+fields equal the physical page count). Clients should keep independent active
+progress entries keyed by the full relative filename and remove each entry on
+`completed` or `reused`, rather than treating the last page event as completion.
+`discovering` starts a fresh progress snapshot; terminal success, cancellation,
+failure, and worker restart clear the active entries.
 
 Cancellation is handled while an operation is running:
 

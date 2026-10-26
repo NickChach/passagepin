@@ -123,7 +123,11 @@ h1,h2,p { margin: 0; }
 .small-warning { font-size: 11px; color: var(--warning); line-height: 1.55; margin: 12px 0; }
 .index-progress { font-size: 11px; margin-top: 20px; color: var(--secondary-ink); }
 .index-progress strong { font-weight: 600; }
-.index-progress p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 8px 0; }
+.index-progress-message, .index-progress-summary { margin: 8px 0; line-height: 1.5; }
+.index-file-list { list-style: none; margin: 14px 0; padding: 0; display: grid; gap: 16px; max-height: 300px; overflow-y: auto; }
+.index-file-name { display: block; overflow-wrap: anywhere; line-height: 1.5; color: var(--ink); }
+.index-file-page { display: block; margin-top: 3px; font-variant-numeric: tabular-nums; color: var(--muted); }
+.index-file progress { margin: 7px 0 0; }
 progress { display: block; width: 100%; height: 5px; margin: 12px 0; accent-color: var(--accent); }
 .text-button { border: 0; background: transparent; color: var(--accent-text); padding: 4px 0; font-size: 12px; text-align: left; }
 .text-button:hover { text-decoration: underline; }

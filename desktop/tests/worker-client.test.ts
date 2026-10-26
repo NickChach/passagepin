@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { copyFile, mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { WorkerClient } from '../electron/worker-client';
 import { createLibrary } from './fixture';
-import type { Library, SearchResult } from '../electron/types';
+import type { Library, Progress, SearchResult } from '../electron/types';
 
 test('real Go worker keeps one process and model for indexing and repeated searches', async (t) => {
   const binary = process.env.PDFSEARCH_WORKER || path.resolve('../dist/pdfsearch-linux-amd64');
@@ -14,12 +14,19 @@ test('real Go worker keeps one process and model for indexing and repeated searc
   const work = await mkdtemp(path.join(os.tmpdir(), 'pdfsearch-client-'));
   const client = new WorkerClient(binary);
   t.after(async () => { await client.stop(); await rm(work, { recursive: true, force: true }); });
-  const root = path.join(work, 'pdfs'); await createLibrary(root, true);
+  const root = path.join(work, 'pdfs');
+  const original = await createLibrary(root, true);
+  await copyFile(original, path.join(root, 'More research.pdf'));
   const ready = await client.start(); assert.equal(ready.model_loads, 1);
   await client.request('open', { directory: root, index_path: path.join(work, 'index.json') });
-  let progress = 0; client.on('progress', () => progress++);
+  const progress: Progress[] = []; client.on('progress', (event: Progress) => progress.push(event));
   const indexed = await client.request<{ library: Library }>('index');
-  assert.equal(indexed.library.pages, 2); assert.equal(indexed.library.empty_pages, 1); assert.ok(progress >= 4);
+  assert.equal(indexed.library.documents, 2); assert.equal(indexed.library.pages, 4); assert.equal(indexed.library.empty_pages, 2);
+  for (const filename of ['Energy and bread.pdf', 'More research.pdf']) {
+    const events = progress.filter((event) => event.filename === filename);
+    assert.deepEqual(events.filter((event) => event.phase === 'embedding').map((event) => event.page), [1, 2, 3]);
+    assert.deepEqual(events.at(-1), { phase: 'completed', filename, page: 3, pages: 3 });
+  }
   for (const query of ['renewable energy sources', 'generating electricity from sunlight']) {
     const result = await client.request<{ results: SearchResult[] }>('search', { query, top: 1 });
     assert.equal(result.results[0]?.page, 3); assert.equal(result.results[0]?.filename, 'Energy and bread.pdf');

@@ -99,7 +99,7 @@ func TestPersistentEngineSearchAndPageValidation(t *testing.T) {
 	if _, err := engine.Handle(ctx, request("index", nil), func(p index.Progress) { progress = append(progress, p) }); err != nil {
 		t.Fatal(err)
 	}
-	if len(progress) != 4 || progress[3].Page != 3 {
+	if len(progress) != 5 || progress[3].Page != 3 || progress[4].Phase != "completed" || progress[4].Filename != "topics.pdf" {
 		t.Fatalf("page events: %+v", progress)
 	}
 	for i := 0; i < 2; i++ {

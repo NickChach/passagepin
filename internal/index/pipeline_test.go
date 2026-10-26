@@ -82,11 +82,36 @@ func TestConcurrentReadersAndEmbeddings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(idx.Documents) != 2 || stats.Pages != 2 || closed.Load() != 2 || len(events) != 3 {
+	if len(idx.Documents) != 2 || stats.Pages != 2 || closed.Load() != 2 || len(events) != 5 {
 		t.Fatalf("stats=%+v closed=%d events=%v", stats, closed.Load(), events)
 	}
 	if idx.Documents[0].Filename != "00.pdf" || idx.Documents[1].Filename != "01.pdf" {
 		t.Fatal("nondeterministic document order")
+	}
+}
+
+func TestDocumentCompletionWaitsForAllEmbeddings(t *testing.T) {
+	root := makeFiles(t, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var closed, finished, completed atomic.Int32
+	factory := func() (Extractor, error) {
+		return &pipelinePDF{count: 3, closed: &closed, text: func(context.Context, string, int) (string, error) { return "text", nil }}, nil
+	}
+	model := embedFunc(func(context.Context, string) ([]float32, error) {
+		finished.Add(1)
+		return unit(0), nil
+	})
+	_, _, err := BuildConcurrent(ctx, root, "weights", true, nil, factory, model, io.Discard, func(p Progress) {
+		if p.Phase == "completed" {
+			completed.Add(1)
+			if finished.Load() != 3 || p.Page != 3 || p.Pages != 3 || p.Filename != "00.pdf" {
+				t.Errorf("premature or incorrect completion: %+v, embeddings finished=%d", p, finished.Load())
+			}
+		}
+	}, Options{1, 2})
+	if err != nil || completed.Load() != 1 {
+		t.Fatalf("err=%v completion events=%d", err, completed.Load())
 	}
 }
 
@@ -114,6 +139,23 @@ func TestPipelineBackpressureCancellationAndCleanup(t *testing.T) {
 	idx, _, err := BuildConcurrent(ctx, root, "weights", true, nil, factory, model, io.Discard, nil, Options{1, 2})
 	if !errors.Is(err, context.Canceled) || idx != nil || extracted.Load() != 7 || active.Load() != 0 || closed.Load() != 1 {
 		t.Fatalf("err=%v extracted=%d active=%d closed=%d", err, extracted.Load(), active.Load(), closed.Load())
+	}
+}
+
+func TestPipelineCancellationPreservesContextError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	root := makeFiles(t, 1)
+	var closed atomic.Int32
+	factory := func() (Extractor, error) {
+		return &pipelinePDF{count: 1, closed: &closed, text: func(context.Context, string, int) (string, error) {
+			cancel()
+			return "", errors.New("parser read interrupted")
+		}}, nil
+	}
+	idx, _, err := BuildConcurrent(ctx, root, "weights", true, nil, factory, &fakeModel{}, io.Discard, nil, Options{1, 1})
+	if idx != nil || !errors.Is(err, context.Canceled) || closed.Load() != 1 {
+		t.Fatalf("cancellation became a parser error: idx=%v err=%v closed=%d", idx, err, closed.Load())
 	}
 }
 

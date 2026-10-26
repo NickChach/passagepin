@@ -138,7 +138,15 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 	var failOnce sync.Once
 	fail := func(err error) {
 		if err != nil {
-			failOnce.Do(func() { firstErr = err; cancel() })
+			failOnce.Do(func() {
+				// Cancellation can interrupt a parser read with a secondary PDF
+				// syntax error. Preserve the operation's cancellation reason.
+				firstErr = ctx.Err()
+				if firstErr == nil {
+					firstErr = err
+				}
+				cancel()
+			})
 		}
 	}
 	var hashing, extraction, embeddings atomic.Int64
@@ -253,6 +261,7 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 					}
 				}
 				doc.Pages = kept
+				notify(Progress{Phase: "completed", Filename: rel, Page: count, Pages: count})
 				select {
 				case documents <- documentResult{doc: doc}:
 				case <-ctx.Done():
