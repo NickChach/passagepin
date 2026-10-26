@@ -2,10 +2,13 @@ package embedding
 
 import (
 	"context"
+	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -53,4 +56,77 @@ func TestFullPageEmbeddingIntegration(t *testing.T) {
 		t.Fatal("ignored cancellation")
 	}
 	t.Logf("Late-page subject changes the page vector: cosine %.4f", cosine)
+}
+
+func TestConcurrentEmbeddingIntegration(t *testing.T) {
+	dir, library := os.Getenv("PDFSEARCH_TEST_MODEL_DIR"), os.Getenv("ONNXRUNTIME_SHARED_LIBRARY_PATH")
+	if dir == "" || library == "" {
+		t.Skip("set local model and runtime paths")
+	}
+	m, err := Open(dir, library, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	texts := []string{"Bread and water.", strings.Repeat("Solar panels generate electricity from sunlight. ", 45), "Wind turbines produce renewable energy.", strings.Repeat("Gardens need soil and water. ", 80)}
+	want := make([][]float32, len(texts))
+	for i, text := range texts {
+		want[i], err = m.Embed(context.Background(), text)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var wg sync.WaitGroup
+	for i, text := range texts {
+		wg.Add(1)
+		go func(i int, text string) {
+			defer wg.Done()
+			for repeat := 0; repeat < 3; repeat++ {
+				got, err := m.Embed(context.Background(), text)
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				for j := range got {
+					if math.Abs(float64(got[j]-want[i][j])) > 1e-6 {
+						t.Errorf("concurrent vector changed for text %d component %d", i, j)
+						return
+					}
+				}
+			}
+		}(i, text)
+	}
+	wg.Wait()
+}
+
+func BenchmarkEmbeddingStages(b *testing.B) {
+	dir, library := os.Getenv("PDFSEARCH_TEST_MODEL_DIR"), os.Getenv("ONNXRUNTIME_SHARED_LIBRARY_PATH")
+	if dir == "" || library == "" {
+		b.Skip("set local model and runtime paths")
+	}
+	text := strings.Repeat("Solar panels convert sunlight into electricity. Wind turbines generate renewable energy without burning fossil fuels. ", 12)
+	for _, threads := range []int{1, 2, 4} {
+		b.Run(fmt.Sprintf("threads=%d", threads), func(b *testing.B) {
+			m, err := Open(dir, library, threads)
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer m.Close()
+			windows := m.tokenizer.Windows(text)
+			b.Run("tokenization", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					m.tokenizer.Windows(text)
+				}
+			})
+			b.Run("inference", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					for _, ids := range windows {
+						if _, err := m.run(ids); err != nil {
+							b.Fatal(err)
+						}
+					}
+				}
+			})
+		})
+	}
 }

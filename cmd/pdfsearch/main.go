@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"text/tabwriter"
+	"time"
 
 	"github.com/darkearl/semantic-search/internal/bundle"
 	"github.com/darkearl/semantic-search/internal/embedding"
@@ -75,10 +76,23 @@ type modelFlags struct {
 
 func addModelFlags(f *flag.FlagSet) *modelFlags {
 	m := &modelFlags{}
+	threads := 0
+	if f.Name() == "index" || f.Name() == "worker" {
+		// Indexing parallelizes across pages. Avoid a second, large native pool
+		// competing with the embedding workers; --threads remains configurable.
+		threads = 1
+	}
 	f.StringVar(&m.dir, "model-dir", defaultModelDir(), "external model directory (bundled releases use their embedded model by default)")
 	f.StringVar(&m.runtime, "runtime", os.Getenv("ONNXRUNTIME_SHARED_LIBRARY_PATH"), "path to ONNX Runtime 1.22.0 shared library")
-	f.IntVar(&m.threads, "threads", 0, "inference threads (0 lets ONNX Runtime choose)")
+	f.IntVar(&m.threads, "threads", threads, "inference threads per model operation (0 lets ONNX Runtime choose)")
 	return m
+}
+
+func addIndexFlags(f *flag.FlagSet) *index.Options {
+	o := index.DefaultOptions()
+	f.IntVar(&o.ExtractionWorkers, "index-workers", o.ExtractionWorkers, "parallel PDF readers (0 selects default; maximum 32)")
+	f.IntVar(&o.EmbeddingWorkers, "embedding-workers", o.EmbeddingWorkers, "parallel page embeddings (0 selects default; maximum 32); tune with --threads")
+	return &o
 }
 
 func (m *modelFlags) assets() embedding.Assets {
@@ -110,11 +124,15 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	switch args[0] {
 	case "worker":
 		m := addModelFlags(f)
+		o := addIndexFlags(f)
 		if err := f.Parse(args[1:]); err != nil {
 			return err
 		}
 		if f.NArg() != 0 || m.threads < 0 {
 			return fmt.Errorf("usage: pdfsearch worker [model options]")
+		}
+		if err := o.Validate(); err != nil {
+			return err
 		}
 		assets := m.assets()
 		fingerprint, err := assets.Fingerprint()
@@ -126,7 +144,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		defer model.Close()
-		return worker.Serve(ctx, os.Stdin, stdout, worker.New(model, fingerprint))
+		return worker.Serve(ctx, os.Stdin, stdout, worker.NewWithOptions(model, fingerprint, *o))
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usage)
 		return nil
@@ -170,6 +188,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return nil
 	case "index":
 		m := addModelFlags(f)
+		o := addIndexFlags(f)
+		timings := f.Bool("timings", false, "report build, hashing, extraction, embedding, and save durations")
 		dir := f.String("dir", "", "directory of PDFs (required)")
 		path := f.String("index", "pdfsearch.index.json", "persistent index path")
 		recursive := f.Bool("recursive", true, "include PDFs in subdirectories")
@@ -182,6 +202,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		}
 		if m.threads < 0 {
 			return fmt.Errorf("threads must be nonnegative")
+		}
+		if err := o.Validate(); err != nil {
+			return err
 		}
 		var old *index.Index
 		if !*rebuild {
@@ -196,25 +219,26 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		if err != nil {
 			return err
 		}
-		extractor, err := pdf.New()
-		if err != nil {
-			return err
-		}
-		defer extractor.Close()
 		model, err := m.open(ctx, assets)
 		if err != nil {
 			return err
 		}
 		defer model.Close()
-		idx, stats, err := index.Build(ctx, *dir, fingerprint, *recursive, old, extractor, model, stderr)
+		idx, stats, err := index.BuildConcurrent(ctx, *dir, fingerprint, *recursive, old, func() (index.Extractor, error) { return pdf.New() }, model, stderr, nil, *o)
 		if err != nil {
 			return err
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		saving := time.Now()
 		if err := idx.Save(*path); err != nil {
 			return err
+		}
+		stats.Timings.Saving = time.Since(saving)
+		if *timings {
+			t := stats.Timings
+			fmt.Fprintf(stderr, "Build wall time: %s; cumulative worker time: hashing %s, extraction %s, embedding (tokenization + inference) %s; saving %s.\n", t.Total, t.Hashing, t.Extraction, t.Embedding, t.Saving)
 		}
 		fmt.Fprintf(stdout, "Saved %s: %d PDFs indexed, %d reused, %d searchable pages, %d empty pages skipped.\n", *path, stats.Indexed, stats.Reused, stats.Pages, stats.EmptyPages)
 		if stats.EmptyPages > 0 {

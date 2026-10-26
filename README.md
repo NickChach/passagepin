@@ -40,7 +40,7 @@ chmod +x PassagePin-0.1.0-x86_64.AppImage
 After making it executable, you can also launch it from a file manager. The
 AppImage requires an AppImage-capable system, commonly using FUSE.
 
-Local packaging writes the AppImage and `PassagePin-0.1.0-x64.tar.gz` under
+Local packaging writes the AppImage and `PassagePin-0.5.0-x64.tar.gz` under
 `desktop/releases/`. The archive provides an alternative without the AppImage
 FUSE requirement: extract it and launch `linux-unpacked/passagepin`.
 
@@ -195,6 +195,13 @@ embedding pipeline. Any extraction or inference error aborts the update and
 leaves the previous saved index intact. Avoid running multiple index writers
 against the same index path at once.
 
+Indexing overlaps PDF reading with embedding. By default, up to two independent
+PDF readers feed a bounded queue to up to two embedding workers (one of each
+when Go's CPU limit is one). Each model operation uses one inference thread.
+Use `--index-workers`, `--embedding-workers`, and `--threads` to tune the CPU and
+memory tradeoff; `--timings` reports where indexing time goes. See
+[indexing performance](docs/indexing-performance.md) for offline benchmarks.
+
 Indexes made by the earlier Poppler-based implementation must be recreated with
 `index --rebuild`. The index format version prevents mixing extraction methods.
 
@@ -206,7 +213,10 @@ Additional options:
 | index | `--rebuild` | false | Replace an index without reusing vectors |
 | index, search | `--model-dir DIR` | embedded model in bundles; user cache otherwise | Use external local model assets |
 | index, search | `--runtime FILE` | bundled runtime / environment | Select the native runtime library |
-| index, search | `--threads N` | 0 | Inference CPU threads; 0 lets the runtime choose |
+| index, worker | `--index-workers N` | up to 2 | Independent PDF readers; 0 selects default, maximum 32 |
+| index, worker | `--embedding-workers N` | up to 2 | Concurrent page embeddings; 0 selects default, maximum 32 |
+| index | `--timings` | false | Report build wall time, cumulative stage time, and saving time |
+| index, worker, search | `--threads N` | 1 for index/worker; 0 for search | Threads per inference operation; 0 lets the runtime choose |
 | index, search | `--index FILE` | `pdfsearch.index.json` | Select the saved index |
 | search | `--top N` | 10 | Maximum number of returned pages |
 | search | `--min-score N` | 0 | Minimum cosine similarity, from -1 to 1 |
@@ -229,7 +239,7 @@ pipeline is applied to the query.
 
 There is exactly **one stored vector and one result per page**. Windows are an
 internal inference detail and never span pages. The model never receives a
-whole PDF. Only the current page's text and model outputs are held during
+whole PDF. Only a bounded number of pages' text and model outputs are held during
 embedding. The persistent index contains filenames, hashes, page numbers, and
 vectors; it does not store extracted page text. Model asset hashes and a pipeline
 version prevent searching an index with incompatible query embeddings.

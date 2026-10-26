@@ -6,12 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/darkearl/semantic-search/internal/embedding"
@@ -52,10 +50,21 @@ type Embedder interface {
 }
 
 type Stats struct {
-	Indexed    int `json:"indexed"`
-	Reused     int `json:"reused"`
-	Pages      int `json:"pages"`
-	EmptyPages int `json:"empty_pages"`
+	Indexed    int     `json:"indexed"`
+	Reused     int     `json:"reused"`
+	Pages      int     `json:"pages"`
+	EmptyPages int     `json:"empty_pages"`
+	Timings    Timings `json:"timings"`
+}
+
+// Timings are cumulative worker time, except Total (build wall time) and Saving.
+// Embedding includes tokenization and inference. Durations encode as nanoseconds.
+type Timings struct {
+	Hashing    time.Duration `json:"hashing_ns"`
+	Extraction time.Duration `json:"extraction_ns"`
+	Embedding  time.Duration `json:"embedding_ns"`
+	Total      time.Duration `json:"total_ns"`
+	Saving     time.Duration `json:"saving_ns"`
 }
 
 type Progress struct {
@@ -176,128 +185,15 @@ func fileHash(ctx context.Context, path string) (string, error) {
 	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
-// Build keeps page text in memory only while embedding that page. It reuses
-// unchanged PDFs, and naturally removes deleted documents from the new snapshot.
+// Build overlaps extraction and embedding with one worker for each stage.
+// It reuses unchanged PDFs and removes deleted documents from the new snapshot.
 func Build(ctx context.Context, root, fingerprint string, recursive bool, old *Index, extractor Extractor, embedder Embedder, progress io.Writer) (*Index, Stats, error) {
 	return BuildWithProgress(ctx, root, fingerprint, recursive, old, extractor, embedder, progress, nil)
 }
 
 // BuildWithProgress supplies structured events to a GUI without parsing logs.
 func BuildWithProgress(ctx context.Context, root, fingerprint string, recursive bool, old *Index, extractor Extractor, embedder Embedder, progress io.Writer, emit func(Progress)) (*Index, Stats, error) {
-	notify := func(p Progress) {
-		if emit != nil {
-			emit(p)
-		}
-	}
-	notify(Progress{Phase: "discovering"})
-	var stats Stats
-	root, err := filepath.Abs(root)
-	if err != nil {
-		return nil, stats, err
-	}
-	root, err = filepath.EvalSymlinks(root)
-	if err != nil {
-		return nil, stats, err
-	}
-	info, err := os.Stat(root)
-	if err != nil {
-		return nil, stats, err
-	}
-	if !info.IsDir() {
-		return nil, stats, fmt.Errorf("PDF root must be a directory")
-	}
-	cache := make(map[string]Document)
-	if old != nil {
-		if old.Root != root || old.Fingerprint != fingerprint {
-			return nil, stats, fmt.Errorf("index belongs to another directory or model; use --rebuild")
-		}
-		for _, doc := range old.Documents {
-			cache[doc.Filename] = doc
-		}
-	}
-	idx := &Index{Version: Version, Root: root, Model: embedding.ModelID, Fingerprint: fingerprint, UpdatedAt: time.Now().UTC(), Documents: []Document{}}
-	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			if path != root && !recursive {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.EqualFold(filepath.Ext(entry.Name()), ".pdf") {
-			return nil
-		}
-		// Do not follow file or directory symlinks outside the selected tree.
-		if !entry.Type().IsRegular() {
-			return nil
-		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		digest, err := fileHash(ctx, path)
-		if err != nil {
-			return err
-		}
-		if doc, ok := cache[rel]; ok && doc.SHA256 == digest {
-			notify(Progress{Phase: "reused", Filename: rel, Pages: doc.PageCount})
-			idx.Documents = append(idx.Documents, doc)
-			stats.Reused++
-			stats.Pages += len(doc.Pages)
-			stats.EmptyPages += doc.PageCount - len(doc.Pages)
-			fmt.Fprintf(progress, "Unchanged: %s\n", rel)
-			return nil
-		}
-		count, err := extractor.PageCount(ctx, path)
-		if err != nil {
-			return fmt.Errorf("%s: %w", rel, err)
-		}
-		doc := Document{Filename: rel, SHA256: digest, PageCount: count, Pages: []Page{}}
-		for page := 1; page <= count; page++ {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			fmt.Fprintf(progress, "Indexing: %s page %d/%d\n", rel, page, count)
-			notify(Progress{Phase: "embedding", Filename: rel, Page: page, Pages: count})
-			text, err := extractor.PageText(ctx, path, page)
-			if err != nil {
-				return fmt.Errorf("%s page %d: %w", rel, page, err)
-			}
-			if strings.TrimSpace(text) == "" {
-				stats.EmptyPages++
-				continue
-			}
-			vector, err := embedder.Embed(ctx, text)
-			if err != nil {
-				return fmt.Errorf("%s page %d: %w", rel, page, err)
-			}
-			if err := validateVector(vector); err != nil {
-				return err
-			}
-			doc.Pages = append(doc.Pages, Page{Number: page, Vector: vector})
-			stats.Pages++
-		}
-		// A changed source must never be committed under a stale content digest.
-		after, err := fileHash(ctx, path)
-		if err != nil {
-			return err
-		}
-		if after != digest {
-			return fmt.Errorf("%s changed during indexing; rerun index", rel)
-		}
-		idx.Documents = append(idx.Documents, doc)
-		stats.Indexed++
-		return nil
-	})
-	if err != nil {
-		return nil, stats, err
-	}
-	return idx, stats, nil
+	return buildPipeline(ctx, root, fingerprint, recursive, old, []Extractor{extractor}, embedder, progress, emit, 1)
 }
 
 type Result struct {

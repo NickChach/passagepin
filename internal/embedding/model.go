@@ -122,6 +122,8 @@ func openModel(t *Tokenizer, path string, weights []byte, library string, thread
 	return &Model{tokenizer: t, session: session}, nil
 }
 
+// Close must run after all Embed callers have finished. Indexing joins every
+// worker before returning, so the owner can safely defer Close.
 func (m *Model) Close() { m.session.Destroy(); ort.DestroyEnvironment() }
 
 func Normalize(v []float32) error {
@@ -139,7 +141,13 @@ func Normalize(v []float32) error {
 	return nil
 }
 
+// Embed supports concurrent callers with the CPU execution provider: vocabulary
+// and session names are read-only; tensors, output slices and pooling are local
+// to each call. Model/environment construction and destruction remain serial.
 func (m *Model) Embed(ctx context.Context, text string) ([]float32, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	windows := m.tokenizer.Windows(text)
 	if len(windows) == 0 {
 		return nil, fmt.Errorf("text has no tokens")

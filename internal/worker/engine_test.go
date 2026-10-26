@@ -1,8 +1,10 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -19,6 +21,40 @@ import (
 type fakeModel struct {
 	calls   atomic.Int32
 	started chan struct{}
+}
+
+func TestConcurrentCancellationPreservesPreviousLibrary(t *testing.T) {
+	root, path := library(t)
+	model := &fakeModel{}
+	engine := NewWithOptions(model, "test-model", index.Options{ExtractionWorkers: 2, EmbeddingWorkers: 2})
+	if _, err := engine.Handle(context.Background(), request("open", map[string]string{"directory": root, "index_path": path}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Handle(context.Background(), request("index", nil), nil); err != nil {
+		t.Fatal(err)
+	}
+	previous := engine.idx
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.started = make(chan struct{}, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go func() {
+		select {
+		case <-model.started:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	if _, err := engine.Handle(ctx, request("index", map[string]bool{"rebuild": true}), nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected cancellation: %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) || engine.idx != previous {
+		t.Fatalf("cancel replaced the saved or in-memory library: %v", err)
+	}
 }
 
 func (m *fakeModel) Embed(ctx context.Context, text string) ([]float32, error) {

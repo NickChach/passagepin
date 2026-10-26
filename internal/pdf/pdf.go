@@ -9,7 +9,8 @@ import (
 )
 
 // Extractor keeps one file open and caches only document structure. Page content
-// streams are decoded on demand. It is used sequentially by the indexer.
+// streams are decoded on demand. Each indexing worker owns its own Extractor;
+// an individual Extractor must not be shared by concurrent calls.
 type Extractor struct {
 	path string
 	doc  *document

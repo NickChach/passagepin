@@ -20,7 +20,7 @@ export class WorkerClient extends EventEmitter {
   private stopping = false;
   private stderr = '';
   readonly binary: string;
-  constructor(binary: string, private readonly args: string[] = ['worker', '--threads', '2'], private readonly launch: WorkerLauncher = spawn) { super(); this.binary = binary; }
+  constructor(binary: string, private readonly args: string[] = ['worker', '--threads', '1'], private readonly launch: WorkerLauncher = spawn) { super(); this.binary = binary; }
 
   start(): Promise<WorkerReady> {
     if (this.readyPromise) return this.readyPromise;

@@ -14,7 +14,7 @@ import (
 )
 
 func TestUsageErrors(t *testing.T) {
-	for _, args := range [][]string{{"unknown"}, {"index"}, {"search"}, {"search", "--top", "0", "topic"}, {"search", "--min-score", "NaN", "topic"}, {"download", "extra"}} {
+	for _, args := range [][]string{{"unknown"}, {"index"}, {"search"}, {"search", "--top", "0", "topic"}, {"search", "--min-score", "NaN", "topic"}, {"download", "extra"}, {"index", "--dir", ".", "--index-workers", "-1"}, {"worker", "--embedding-workers", "33"}} {
 		if err := run(context.Background(), args, &bytes.Buffer{}, &bytes.Buffer{}); err == nil {
 			t.Fatalf("expected error for %v", args)
 		}
@@ -40,12 +40,15 @@ func TestSemanticSearchIntegration(t *testing.T) {
 	idxPath := filepath.Join(t.TempDir(), "search.index.json")
 	common := []string{"--model-dir", model, "--runtime", library, "--threads", "1", "--index", idxPath}
 	var out, log bytes.Buffer
-	args := append([]string{"index", "--dir", root}, common...)
+	args := append([]string{"index", "--dir", root, "--index-workers", "2", "--embedding-workers", "2", "--timings"}, common...)
 	if err := run(context.Background(), args, &out, &log); err != nil {
 		t.Fatalf("index: %v\n%s", err, log.String())
 	}
 	if !strings.Contains(out.String(), "2 searchable pages, 1 empty pages skipped") {
 		t.Fatalf("unexpected summary: %s", out.String())
+	}
+	if !strings.Contains(log.String(), "Build wall time:") {
+		t.Fatalf("missing stage timings: %s", log.String())
 	}
 	out.Reset()
 	args = append([]string{"search", "--json", "--top", "1"}, common...)

@@ -7,8 +7,8 @@ are not implemented or tested yet.
 
 ## Run a release
 
-Use `releases/PassagePin-0.1.0-x86_64.AppImage` from a file manager, or extract
-`releases/PassagePin-0.1.0-x64.tar.gz` and open `passagepin` in the extracted
+For a local `0.5.0` build, use `releases/PassagePin-0.5.0-x86_64.AppImage` from a file manager, or extract
+`releases/PassagePin-0.5.0-x64.tar.gz` and open `passagepin` in the extracted
 folder. The AppImage requires an AppImage-capable system (commonly FUSE); the
 archive avoids that requirement. Neither needs Node, Go, model downloads or
 runtime flags. The app includes Chromium and the bundled Go worker.
@@ -90,10 +90,17 @@ React renderer
 The worker loads its model before sending `ready`, retains it across `open`,
 `index`, `search`, and `page` requests, and releases it when stdin closes or it
 receives `shutdown`. Indexes are loaded into memory when a library is opened.
-Embedding operations are serialized because one model session is shared. A
-concurrent operation gets `busy`; cancellation is read independently of active
-work. Cancellation takes effect between bounded model calls. Successful index
+User operations are serialized: a concurrent request gets `busy`, and
+cancellation is read independently of active work. Within indexing, up to two
+independent PDF readers overlap extraction with up to two embedding workers on
+the resident CPU model session. Electron uses one native inference thread per
+operation to avoid competing thread pools. Queued page text is bounded, and
+progress events from different PDFs can interleave. Cancellation takes effect
+between bounded model calls and waits for workers to finish. Successful index
 updates are saved atomically; failed/cancelled builds keep the last saved index.
+See [indexing performance](../docs/indexing-performance.md) for tuning and
+offline measurements. Rebuild the Go worker with `make bundle` from the repository
+root when changing core indexing code; `npm run build` alone rebuilds Electron.
 
 The renderer runs with Node integration disabled, context isolation and the
 Chromium sandbox enabled. It cannot spawn processes or choose arbitrary files
@@ -141,7 +148,7 @@ alongside the new one (with `APPIMAGE_EXTRACT_AND_RUN=1` if FUSE is unavailable)
 
 ```sh
 PDFSEARCH_TEST_PREVIOUS_BINARY=/path/to/PDF-Search-0.1.0-x86_64.AppImage \
-PDFSEARCH_TEST_PACKAGED_BINARY="$PWD/releases/PassagePin-0.1.0-x86_64.AppImage" \
+PDFSEARCH_TEST_PACKAGED_BINARY="$PWD/releases/PassagePin-0.5.0-x86_64.AppImage" \
   npm run test:e2e
 ```
 

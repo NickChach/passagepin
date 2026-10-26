@@ -26,6 +26,7 @@ type Engine struct {
 	directory, indexPath string
 	idx                  *index.Index
 	issue                string
+	indexOptions         index.Options
 }
 
 type Library struct {
@@ -39,7 +40,11 @@ type Library struct {
 }
 
 func New(model Model, fingerprint string) *Engine {
-	return &Engine{model: model, fingerprint: fingerprint}
+	return NewWithOptions(model, fingerprint, index.DefaultOptions())
+}
+
+func NewWithOptions(model Model, fingerprint string, options index.Options) *Engine {
+	return &Engine{model: model, fingerprint: fingerprint, indexOptions: options}
 }
 
 func (e *Engine) summary() Library {
@@ -127,18 +132,18 @@ func (e *Engine) Handle(ctx context.Context, req Request, emit func(index.Progre
 		if p.Rebuild {
 			old = nil
 		}
-		extractor, _ := pdf.New()
-		defer extractor.Close()
-		idx, stats, err := index.BuildWithProgress(ctx, e.directory, e.fingerprint, true, old, extractor, e.model, io.Discard, emit)
+		idx, stats, err := index.BuildConcurrent(ctx, e.directory, e.fingerprint, true, old, func() (index.Extractor, error) { return pdf.New() }, e.model, io.Discard, emit, e.indexOptions)
 		if err != nil {
 			return nil, err
 		}
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		saving := time.Now()
 		if err := idx.Save(e.indexPath); err != nil {
 			return nil, err
 		}
+		stats.Timings.Saving = time.Since(saving)
 		e.idx, e.issue = idx, ""
 		return struct {
 			Library Library     `json:"library"`
