@@ -106,6 +106,22 @@ h1,h2,p { margin: 0; }
 .folder-summary > svg { color: var(--icon); margin-bottom: 10px; }
 .folder-summary strong { display: block; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .folder-path { font-size: 11px; color: var(--subtle); line-height: 1.6; margin-top: 7px; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.saved-libraries { list-style: none; padding: 0; margin: 16px -8px; max-height: 270px; overflow-y: auto; }
+.saved-libraries > li { padding: 6px 8px; border-left: 3px solid transparent; }
+.saved-libraries > .current-library { background: var(--selected); border-left-color: var(--accent); }
+.library-choice { display: flex; gap: 8px; width: 100%; padding: 6px 0; border: 0; color: var(--ink); background: transparent; text-align: left; }
+.library-choice > svg { margin-top: 2px; color: var(--icon); }
+.library-choice > span { min-width: 0; }
+.library-choice strong { display: block; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; }
+.library-choice .folder-path { margin-top: 3px; -webkit-line-clamp: 2; font-size: 10px; }
+.library-current { display: block; color: var(--accent-text); font-size: 10px; margin-top: 5px; }
+.library-actions { display: flex; gap: 16px; }
+.library-editor, .library-removal { margin: 16px 0; padding: 12px 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.library-editor label { display: block; margin-bottom: 8px; font-size: 12px; }
+.library-editor input { width: 100%; padding: 8px; border: 1px solid var(--control-border); border-radius: 4px; color: var(--ink); background: var(--surface); }
+.library-editor .library-actions, .library-removal .library-actions { margin-top: 8px; }
+.library-removal p { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.text-button.danger { color: var(--error-ink); }
 .button { border: 1px solid transparent; min-height: 39px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 9px 15px; border-radius: 6px; font-weight: 600; font-size: 13px; white-space: nowrap; }
 .button.primary { background: var(--accent); color: var(--on-accent); }
 .button.primary:not(:disabled):hover { background: var(--accent-hover); }

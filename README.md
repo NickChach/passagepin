@@ -11,7 +11,8 @@ your machine.
 
 ## Desktop application
 
-The PassagePin Electron application with a React/TypeScript interface is in `desktop/`. It provides folder selection, incremental indexing
+The PassagePin Electron application with a React/TypeScript interface is in `desktop/`. It provides saved, named libraries with switching
+and removal, incremental indexing
 with progress and cancellation, ranked page results, extracted-page reading, and opening PDFs in the system viewer. A persistent Go worker
 keeps MiniLM and the active index loaded across searches. The renderer has no Node.js or direct filesystem access.
 

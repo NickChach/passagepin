@@ -11,7 +11,7 @@ Georgia for the selected page's reading text. No remote fonts or assets.
 Layout, left aligned:
 
     Library sidebar       Subject search
-    Folder selection      Query input and Search button
+    Saved libraries       Query input and Search button
     Index state           Ranked pages       Selected page text
     Update / Cancel       Filename / page    Open PDF
     Local model status
@@ -25,3 +25,9 @@ The design intentionally avoids a marketing hero, gradients, repeated cards,
 and decorative statistics. Standard title-bar/window controls remain native.
 Every interaction has keyboard focus and a text label. Motion is limited to
 busy feedback and is disabled under reduced-motion preferences.
+
+Saved libraries use a compact, scrollable list in the existing sidebar. Names
+and paths are left aligned; the current library uses annotation blue and the
+existing selected-row background. Rename forms and removal confirmation appear
+inline, with explicit text actions. The established palette, typography and
+search layout stay consistent as the list grows.

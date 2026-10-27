@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import type { Library, PageText, SearchResult, State } from '../electron/types';
+import type { PageText, SavedLibrary, SearchResult, State } from '../electron/types';
 import { saveTheme, type Theme } from './theme';
 import { emptyIndexProgress, updateIndexProgress } from './index-progress';
 
@@ -15,7 +15,7 @@ function Icon({ name, size = 20 }: { name: 'folder' | 'search' | 'document' | 'r
   };
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
 }
-const initial: State = { ready: null, error: null, operation: null, library: null };
+const initial: State = { ready: null, error: null, operation: null, library: null, libraries: [], activeLibraryId: null, libraryError: null };
 const basename = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) || path;
 const message = (error: unknown) => error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : String(error);
 
@@ -33,6 +33,9 @@ export default function App() {
   const [notice, setNotice] = useState<string | null>(null);
   const [top, setTop] = useState(20);
   const [minimum, setMinimum] = useState(0);
+  const [editing, setEditing] = useState<SavedLibrary | null>(null);
+  const [nameDraft, setNameDraft] = useState('');
+  const [removing, setRemoving] = useState<SavedLibrary | null>(null);
   const busy = action !== null || state.operation !== null;
   const ready = state.ready !== null && !state.error;
   const library = state.library;
@@ -50,11 +53,24 @@ export default function App() {
       if (event.kind === 'failed') { setState((s) => ({ ...s, ready: null, error: event.data })); setProgress(emptyIndexProgress()); }
       if (event.kind === 'operation') { setState((s) => ({ ...s, operation: event.data })); setProgress(emptyIndexProgress()); }
       if (event.kind === 'library') setState((s) => ({ ...s, library: event.data }));
+      if (event.kind === 'libraries') {
+        setState((s) => ({ ...s, ...event.data }));
+        setRemoving((current) => current && event.data.libraries.some((entry) => entry.id === current.id) ? current : null);
+        setEditing((current) => current && event.data.libraries.some((entry) => entry.id === current.id) ? current : null);
+      }
+      if (event.kind === 'library-error') setState((s) => ({ ...s, libraryError: event.data }));
       if (event.kind === 'progress') setProgress((current) => updateIndexProgress(current, event.data));
     });
     void window.pdfSearch.getState().then(setState).catch((err: unknown) => setError(message(err)));
     return unsubscribe;
   }, []);
+
+  function clearSearch() {
+    setResults([]); setSelected(null); setPreview(null); setLastQuery(''); setProgress(emptyIndexProgress());
+  }
+  useEffect(() => {
+    clearSearch(); setEditing(null); setRemoving(null);
+  }, [library?.directory]);
 
   async function perform(name: string, work: () => Promise<void>) {
     setAction(name); setError(null); setNotice(null);
@@ -69,7 +85,27 @@ export default function App() {
     await perform('opening', async () => {
       const chosen = await window.pdfSearch.chooseFolder();
       if (!chosen) return;
-      setState((s) => ({ ...s, library: chosen })); setResults([]); setSelected(null); setPreview(null); setLastQuery(''); setProgress(emptyIndexProgress());
+      setState((s) => ({ ...s, library: chosen })); clearSearch(); setEditing(null); setRemoving(null);
+    });
+  }
+  async function selectLibrary(id: string) {
+    await perform('opening', async () => {
+      const chosen = await window.pdfSearch.selectLibrary(id);
+      setState((s) => ({ ...s, library: chosen })); clearSearch(); setEditing(null); setRemoving(null);
+    });
+  }
+  async function renameLibrary(event: FormEvent) {
+    event.preventDefault();
+    if (!editing || busy) return;
+    await perform('renaming', async () => {
+      setState(await window.pdfSearch.renameLibrary(editing.id, nameDraft.trim())); setEditing(null);
+    });
+  }
+  async function removeLibrary() {
+    if (!removing || busy) return;
+    await perform('removing', async () => {
+      setState(await window.pdfSearch.removeLibrary(removing.id)); setRemoving(null);
+      setNotice(`Removed “${removing.name}” and its cached index. Your PDFs are unchanged.`);
     });
   }
   async function indexFolder() {
@@ -113,10 +149,17 @@ export default function App() {
     <aside className="sidebar" aria-label="PDF library">
       <div className="brand"><span className="brand-mark"><Icon name="document" size={25} /></span><span>PassagePin</span></div>
       <div className="sidebar-section">
-        <h2>Your library</h2>
-        {library ? <div className="folder-summary"><Icon name="folder" size={28} /><strong title={library.directory}>{basename(library.directory)}</strong><p className="folder-path" title={library.directory}>{library.directory}</p></div>
+        <h2>Your libraries</h2>
+        {state.libraries?.length > 0 ? <ul className="saved-libraries" aria-label="Saved libraries">{state.libraries.map((entry) => <li key={entry.id} className={state.activeLibraryId === entry.id ? 'current-library' : ''}>
+          <button className="library-choice" aria-current={state.activeLibraryId === entry.id ? 'true' : undefined} disabled={!ready || busy} title={entry.directory} onClick={() => void selectLibrary(entry.id)}>
+            <Icon name="folder" size={18} /><span><strong>{entry.name}</strong><span className="folder-path">{entry.directory}</span>{state.activeLibraryId === entry.id && <span className="library-current">{library ? 'Current library' : 'Folder unavailable'}</span>}</span>
+          </button>
+          <div className="library-actions"><button className="text-button" aria-label={`Rename library ${entry.name}`} disabled={!ready || busy} onClick={() => { setEditing(entry); setNameDraft(entry.name); setRemoving(null); }}>Rename</button><button className="text-button" aria-label={`Remove library ${entry.name}`} disabled={!ready || busy} onClick={() => { setRemoving(entry); setEditing(null); }}>Remove</button></div>
+        </li>)}</ul> : library ? <div className="folder-summary"><Icon name="folder" size={28} /><strong title={library.directory}>{basename(library.directory)}</strong><p className="folder-path" title={library.directory}>{library.directory}</p></div>
           : <p className="muted">Start with a folder of PDFs on your computer.</p>}
-        <button className="button secondary wide" disabled={!ready || busy} onClick={() => void chooseFolder()}><Icon name="folder" size={17} />{library ? 'Change folder' : 'Choose folder'}</button>
+        {editing && <form className="library-editor" aria-label="Rename library" onSubmit={(event) => void renameLibrary(event)}><label htmlFor="library-name">Library name</label><input id="library-name" value={nameDraft} maxLength={120} required autoFocus disabled={busy} onChange={(event) => setNameDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Escape' && !busy) setEditing(null); }} /><div className="library-actions"><button type="submit" className="text-button" disabled={busy || !nameDraft.trim()}>Save name</button><button type="button" className="text-button" disabled={busy} onClick={() => setEditing(null)}>Cancel</button></div></form>}
+        {removing && <section className="library-removal" aria-label="Remove saved library"><p>Remove <strong>{removing.name}</strong> and its cached index? Your PDF files will stay on this computer.</p><div className="library-actions"><button className="text-button danger" disabled={busy} onClick={() => void removeLibrary()}>Remove library</button><button className="text-button" autoFocus disabled={busy} onClick={() => setRemoving(null)}>Keep library</button></div></section>}
+        <button className="button secondary wide" disabled={!ready || busy} onClick={() => void chooseFolder()}><Icon name="folder" size={17} />{state.libraries?.length || library ? 'Add library' : 'Choose folder'}</button>
       </div>
       {library && <div className="sidebar-section index-section">
         <div className="section-heading"><h2>Search index</h2><span className={`status-tag ${library.indexed ? 'available' : ''}`}>{library.indexed ? 'Ready' : 'Not indexed'}</span></div>
@@ -151,7 +194,7 @@ export default function App() {
           <div className="search-options"><span>Search by meaning across the pages in your library.</span><details><summary>Search options</summary><div className="options-panel"><label>Maximum results<select value={top} disabled={busy} onChange={(event) => setTop(Number(event.target.value))}><option value={10}>10 pages</option><option value={20}>20 pages</option><option value={50}>50 pages</option></select></label><label>Minimum similarity<input aria-label="Minimum similarity" type="number" min="-1" max="1" step="0.05" value={minimum} disabled={busy} onChange={(event) => setMinimum(Number(event.target.value))} /></label><p>Similarity is a ranking score, not a probability.</p></div></details></div>
         </form>
       </header>
-      {(error || state.error) && <div className="message error" role="alert"><strong>Couldn’t complete that action.</strong><span>{error || state.error}</span></div>}
+      {(error || state.error || state.libraryError) && <div className="message error" role="alert"><strong>Couldn’t complete that action.</strong><span>{error || state.error || state.libraryError}</span></div>}
       {notice && <div className="message notice" role="status">{notice}</div>}
       {!loading && fileIssues.length > 0 && <section className="index-report" aria-label="Indexing report"><details>
         <summary>Indexing report: {skippedFiles} skipped, {recoveredFiles} indexed using recovery</summary>
@@ -175,7 +218,7 @@ export default function App() {
           })}</div>
             <article className="page-preview" aria-label="Selected PDF page"><header><div><span className="preview-page-number">Page {selected?.page}</span><h2 title={selected?.filename}>{selected ? basename(selected.filename) : 'Select a page'}</h2></div><button className="button secondary" disabled={busy || !selected} title="Open the document in your default PDF viewer" onClick={() => selected && void perform('opening-pdf', () => window.pdfSearch.openPDF(selected.filename, selected.page))}>Open PDF<Icon name="arrow" size={15} /></button></header><div className="page-paper">{preview ? <p>{preview.text || 'This page has no extractable text.'}</p> : <p className="muted" role="status">Reading page…</p>}</div><footer>Extracted text from the current PDF. Page numbers include covers and blank pages.</footer></article>
           </div>}
-      </section> : <section className="welcome" aria-label="Getting started"><div className="paper-illustration" aria-hidden="true"><div className="paper-shadow" /><div className="paper-sheet"><Icon name="document" size={33} /><i /><i /><i className="annotation-line" /><i /><i /></div><span className="paper-search"><Icon name="search" size={24} /></span></div><h2>{!library ? 'Your next answer is in your library.' : !library.indexed ? 'Make these PDFs searchable.' : library.pages === 0 ? 'No searchable pages yet.' : 'Your library is ready to explore.'}</h2><p>{!library ? 'Choose a folder of PDFs to get started. Everything is read and searched locally.' : !library.indexed ? 'Index this folder once, then search for the subjects you want to read about.' : library.pages === 0 ? 'Add text-based PDFs to this folder and update the index. Scanned documents need OCR first.' : `Describe a subject above to find relevant pages across ${library.documents} PDFs.`}</p>{!library && <button className="button secondary" disabled={!ready || busy} onClick={() => void chooseFolder()}><Icon name="folder" size={18} />Choose a folder</button>}{library && !library.indexed && <button className="button secondary" disabled={!ready || busy} onClick={() => void indexFolder()}>Index this folder</button>}</section>}
+      </section> : <section className="welcome" aria-label="Getting started"><div className="paper-illustration" aria-hidden="true"><div className="paper-shadow" /><div className="paper-sheet"><Icon name="document" size={33} /><i /><i /><i className="annotation-line" /><i /><i /></div><span className="paper-search"><Icon name="search" size={24} /></span></div><h2>{!library ? 'Your next answer is in your library.' : !library.indexed ? 'Make these PDFs searchable.' : library.pages === 0 ? 'No searchable pages yet.' : 'Your library is ready to explore.'}</h2><p>{!library ? state.libraries?.length ? 'Select a saved library in the sidebar, or add another folder of PDFs.' : 'Choose a folder of PDFs to get started. Everything is read and searched locally.' : !library.indexed ? 'Index this folder once, then search for the subjects you want to read about.' : library.pages === 0 ? 'Add text-based PDFs to this folder and update the index. Scanned documents need OCR first.' : `Describe a subject above to find relevant pages across ${library.documents} PDFs.`}</p>{!library && <button className="button secondary" disabled={!ready || busy} onClick={() => void chooseFolder()}><Icon name="folder" size={18} />{state.libraries?.length ? 'Add a library' : 'Choose a folder'}</button>}{library && !library.indexed && <button className="button secondary" disabled={!ready || busy} onClick={() => void indexFolder()}>Index this folder</button>}</section>}
     </main>
   </div>;
 }

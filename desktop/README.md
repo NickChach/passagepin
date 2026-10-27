@@ -20,9 +20,19 @@ runtime flags. The app includes Chromium and the bundled Go worker.
    in the system PDF viewer; it does not promise navigation to a specific page in
    an arbitrary external viewer. The selected physical page is shown in the app.
 
-Index files and the last selected folder are kept under Electron's OS user-data
-folder, not beside the PDFs. Model/native caches follow the bundled CLI behavior
-in the root README. The app remembers and reopens the last library on launch.
+Each folder is automatically saved as a library. Use **Add library** to save
+another folder and select a name in **Your libraries** to switch. Each library
+keeps its own index; switching does not require reindexing. **Rename** changes
+the saved display name without moving the folder. **Remove** asks for confirmation
+and deletes that library's saved entry and cached index, leaving its PDF files
+unchanged. Removing the current library clears the search; select another saved
+library to continue.
+
+Index files, saved names, and the last selection are kept under Electron's OS
+user-data folder, not beside the PDFs. Model/native caches follow the bundled CLI
+behavior in the root README. The app reopens the last selected library on launch
+and imports the folder remembered by earlier versions automatically. An unavailable
+folder remains saved: reconnect it and select its name to retry, or remove it.
 Use the **Dark mode** switch at the bottom of the sidebar to change appearance.
 The first launch follows the system's color preference; an explicit selection
 is saved locally and restored when the app is reopened.
@@ -149,6 +159,11 @@ Screenshots are saved to `test-results/desktop-search.png` and
 `test-results/desktop-search-dark.png`. GUI tests require a
 working desktop display or a suitable virtual-display setup. Linux release tests
 use temporary XDG config/cache directories to isolate them from user data.
+
+The library tests cover legacy migration, independent saved indexes, naming,
+switching, duplicate folders through symlinks, restart persistence, unavailable
+folders, removal without deleting PDFs, and operation/IPC guards. Registry unit
+tests also check invalid input, corrupt files, and failed atomic writes.
 
 To verify compatibility with an older PDF Search release, provide its AppImage
 alongside the new one (with `APPIMAGE_EXTRACT_AND_RUN=1` if FUSE is unavailable):
