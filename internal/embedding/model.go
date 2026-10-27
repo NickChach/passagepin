@@ -157,14 +157,8 @@ func (m *Model) Embed(ctx context.Context, text string) ([]float32, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		data, err := m.run(ids)
-		if err != nil {
+		if err := m.run(ids, sum); err != nil {
 			return nil, err
-		}
-		// Sum all unpadded token embeddings, including CLS/SEP as in the model
-		// card. Normalizing once is equivalent to a token-weighted mean.
-		for i, value := range data {
-			sum[i%Dimensions] += float64(value)
 		}
 	}
 	vector := make([]float32, Dimensions)
@@ -177,7 +171,8 @@ func (m *Model) Embed(ctx context.Context, text string) ([]float32, error) {
 	return vector, nil
 }
 
-func (m *Model) run(ids []int64) ([]float32, error) {
+// run adds a window to the caller-owned accumulator before releasing its output.
+func (m *Model) run(ids []int64, sum []float64) error {
 	shape := ort.NewShape(1, int64(len(ids)))
 	mask := make([]int64, len(ids))
 	for i := range mask {
@@ -192,7 +187,7 @@ func (m *Model) run(ids []int64) ([]float32, error) {
 	for _, data := range [][]int64{ids, mask, make([]int64, len(ids))} {
 		tensor, err := ort.NewTensor(shape, data)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		inputs = append(inputs, tensor)
 	}
@@ -203,15 +198,21 @@ func (m *Model) run(ids []int64) ([]float32, error) {
 		}
 	}()
 	if err := m.session.Run(inputs, outputs); err != nil {
-		return nil, fmt.Errorf("MiniLM inference: %w", err)
+		return fmt.Errorf("MiniLM inference: %w", err)
 	}
 	tensor, ok := outputs[0].(*ort.Tensor[float32])
 	if !ok {
-		return nil, fmt.Errorf("unexpected model output type")
+		return fmt.Errorf("unexpected model output type")
 	}
 	got := tensor.GetShape()
 	if len(got) != 3 || got[0] != 1 || got[1] != int64(len(ids)) || got[2] != Dimensions {
-		return nil, fmt.Errorf("unexpected model output shape %v", got)
+		return fmt.Errorf("unexpected model output shape %v", got)
 	}
-	return append([]float32(nil), tensor.GetData()...), nil
+	// Sum all unpadded token embeddings, including CLS/SEP as in the model
+	// card. Normalizing once is equivalent to a token-weighted mean. Keep the
+	// tensor alive until pooling finishes; its data must not escape this call.
+	for i, value := range tensor.GetData() {
+		sum[i%Dimensions] += float64(value)
+	}
+	return nil
 }

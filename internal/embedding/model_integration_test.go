@@ -88,7 +88,7 @@ func TestConcurrentEmbeddingIntegration(t *testing.T) {
 					return
 				}
 				for j := range got {
-					if math.Abs(float64(got[j]-want[i][j])) > 1e-6 {
+					if math.Float32bits(got[j]) != math.Float32bits(want[i][j]) {
 						t.Errorf("concurrent vector changed for text %d component %d", i, j)
 						return
 					}
@@ -118,10 +118,12 @@ func BenchmarkEmbeddingStages(b *testing.B) {
 					m.tokenizer.Windows(text)
 				}
 			})
-			b.Run("inference", func(b *testing.B) {
+			b.Run("inference_and_pooling", func(b *testing.B) {
+				sum := make([]float64, Dimensions)
 				for i := 0; i < b.N; i++ {
+					clear(sum)
 					for _, ids := range windows {
-						if _, err := m.run(ids); err != nil {
+						if err := m.run(ids, sum); err != nil {
 							b.Fatal(err)
 						}
 					}
