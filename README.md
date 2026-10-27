@@ -35,6 +35,9 @@ FUSE.
 Local packaging writes the AppImage and `PassagePin-0.6.0-x64.tar.gz` under `desktop/releases/`. The archive provides an alternative without
 the AppImage FUSE requirement: extract it and launch `linux-unpacked/passagepin`.
 
+To rebuild locally after code changes, run `./build.sh` from the repository root. It rebuilds the bundled Go worker and Electron packages
+using the local model/runtime assets. See [the desktop build instructions](desktop/README.md#build-linux-packages) for prerequisites and options.
+
 The app includes Electron and the bundled Go worker; end users need no compiler, Node, Go, model download, or CLI setup. Windows/macOS
 worker bundling and release validation remain future work.
 

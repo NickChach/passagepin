@@ -70,8 +70,34 @@ use that development override. A source worker can still use
 
 ## Build Linux packages
 
+From the repository root:
+
 ```sh
-# From desktop/, after make bundle and npm ci:
+./build.sh
+# Launch the rebuilt app:
+./desktop/releases/linux-unpacked/passagepin
+```
+
+The script rebuilds the Go worker, builds the Electron interface, and creates the
+AppImage, tar.gz, and unpacked application under `desktop/releases/`. It resolves
+paths relative to itself, so it can also be invoked from another working directory.
+It requires Linux x86-64, Go 1.23+, Node 22.12+, npm, make, a C compiler and tar,
+plus the model and runtime assets described in the root README. Existing npm and
+Electron installations are reused. If `desktop/node_modules` is absent, npm
+dependencies are installed automatically; the Electron runtime is installed if
+needed. Initial dependency installation may need network access. After changing dependency
+versions, run `./build.sh --install-deps` to reinstall from the lockfile.
+Optional `MODEL_DIR` and `RUNTIME_DIR` environment variables select other local
+assets; relative paths are resolved from the repository root. `./build.sh --help`
+shows usage.
+
+The equivalent manual commands are:
+
+```sh
+# From the repository root, after installing desktop dependencies:
+make desktop-package
+
+# Or from desktop/, after make bundle:
 npm run package:linux
 
 # Or create just the unpacked application:
