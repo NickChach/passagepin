@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -90,6 +91,7 @@ func TestRecoveryUsesLatestRevisionAndHonorsFreeEntries(t *testing.T) {
 		t.Run(fmt.Sprint(freed), func(t *testing.T) {
 			path := fixture(t, basicObjects(streamBody([]byte("BT /F1 10 Tf (old edition) Tj ET"), "")))
 			data, _ := os.ReadFile(path)
+			prev := startXrefOffset(t, data)
 			var out bytes.Buffer
 			out.Write(bytes.TrimRight(data, "\r\n \t")) // An appender can omit the separator after %%EOF.
 			offset := out.Len()
@@ -101,10 +103,11 @@ func TestRecoveryUsesLatestRevisionAndHonorsFreeEntries(t *testing.T) {
 			if freed {
 				entry = "0000000000 00001 f"
 			}
-			fmt.Fprintf(&out, "xref\n5 1\n%s \ntrailer\n<< /Size 6 /Root 1 0 R /Prev 0 >>\nstartxref\n%d\n%%%%EOF\n", entry, xref)
+			fmt.Fprintf(&out, "xref\n5 1\n%s \ntrailer\n<< /Size 6 /Root 1 0 R /Prev %d >>\nstartxref\n%d\n%%%%EOF\n", entry, prev, xref)
 			if err := os.WriteFile(path, out.Bytes(), 0600); err != nil {
 				t.Fatal(err)
 			}
+			breakStartXref(t, path)
 			e, _ := New()
 			defer e.Close()
 			text, err := e.PageText(context.Background(), path, 1)
@@ -114,6 +117,122 @@ func TestRecoveryUsesLatestRevisionAndHonorsFreeEntries(t *testing.T) {
 				}
 			} else if err != nil || text != "new edition" {
 				t.Fatalf("text=%q err=%v", text, err)
+			}
+		})
+	}
+}
+
+func startXrefOffset(t *testing.T, data []byte) int64 {
+	t.Helper()
+	var offset int64
+	at := bytes.LastIndex(data, []byte("startxref"))
+	if at < 0 {
+		t.Fatal("fixture has no startxref")
+	}
+	if _, err := fmt.Sscanf(string(data[at:]), "startxref\n%d", &offset); err != nil {
+		t.Fatal(err)
+	}
+	return offset
+}
+
+func TestRecoveryHonorsSelectedRevisionChain(t *testing.T) {
+	for _, badObjectOffset := range []bool{false, true} {
+		t.Run(fmt.Sprint(badObjectOffset), func(t *testing.T) {
+			path := fixture(t, basicObjects(streamBody([]byte("BT /F1 10 Tf (original edition) Tj ET"), "")))
+			base, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			baseXref := startXrefOffset(t, base)
+			if badObjectOffset {
+				lines := bytes.Split(base[baseXref:], []byte("\n"))
+				copy(lines[7][:10], "0000000000")
+			}
+			var out bytes.Buffer
+			out.Write(base)
+			discarded := out.Len()
+			fmt.Fprintf(&out, "5 0 obj\n%s\nendobj\n", streamBody([]byte("BT /F1 10 Tf (discarded revision content) Tj ET"), ""))
+			middle := out.Len()
+			fmt.Fprintf(&out, "xref\n5 1\n%010d 00000 n \ntrailer\n<< /Size 6 /Root 1 0 R /Prev %d >>\nstartxref\n%d\n%%%%EOF\n", discarded, baseXref, middle)
+			metadata := out.Len()
+			out.WriteString("6 0 obj\n<< /Producer (new metadata) >>\nendobj\n")
+			latest := out.Len()
+			// This update branches from the original, excluding the middle update.
+			// Omitting /Root also verifies inheritance from the selected ancestor.
+			fmt.Fprintf(&out, "xref\n6 1\n%010d 00000 n \ntrailer\n<< /Size 7 /Prev %d >>\nstartxref\n%d\n%%%%EOF\n", metadata, baseXref, latest)
+			for _, damagedStart := range []bool{false, true} {
+				file := filepath.Join(t.TempDir(), "revision.pdf")
+				if err := os.WriteFile(file, out.Bytes(), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if damagedStart {
+					breakStartXref(t, file)
+				}
+				e, _ := New()
+				defer e.Close()
+				text, err := e.PageText(context.Background(), file, 1)
+				if err != nil || text != "original edition" {
+					t.Fatalf("damagedStart=%v: text=%q err=%v", damagedStart, text, err)
+				}
+				if (damagedStart || badObjectOffset) && e.RecoveryInfo() == "" {
+					t.Fatal("fixture did not exercise recovery")
+				}
+			}
+		})
+	}
+}
+
+func TestRecoveryResolvesOnlyUnambiguousRevisionLinks(t *testing.T) {
+	for _, kind := range []string{"unique", "ambiguous", "missing", "self", "forward", "zero", "negative"} {
+		t.Run(kind, func(t *testing.T) {
+			path := fixture(t, basicObjects(streamBody([]byte("BT /F1 10 Tf (selected text) Tj ET"), "")))
+			base, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			const damagedOffset = 999999
+			at := bytes.LastIndex(base, []byte("startxref"))
+			base = append(base[:at], []byte(fmt.Sprintf("startxref\n%d\n%%%%EOF\n", damagedOffset))...)
+			var out bytes.Buffer
+			out.Write(base)
+			if kind == "ambiguous" {
+				// A separate physical revision advertises the same damaged offset.
+				fmt.Fprintf(&out, "xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 6 >>\nstartxref\n%d\n%%%%EOF\n", damagedOffset)
+			}
+			latest := out.Len()
+			prev := int64(damagedOffset)
+			switch kind {
+			case "missing":
+				prev++
+			case "self":
+				prev = int64(latest)
+			case "zero":
+				prev = 0
+			case "negative":
+				prev = -1
+			}
+			const table = "xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 6 /Prev %010d >>\nstartxref\n0\n%%%%EOF\n"
+			if kind == "forward" {
+				prev = int64(latest + len(fmt.Sprintf(table, 0)))
+			}
+			fmt.Fprintf(&out, table, prev)
+			if kind == "forward" {
+				// The middle table points forward to this final table.
+				// Select it explicitly; its /Prev must still be rejected.
+				fmt.Fprintf(&out, "xref\n0 1\n0000000000 65535 f \ntrailer\n<< /Size 6 /Prev %d >>\nstartxref\n%d\n%%%%EOF\n", damagedOffset, latest)
+			}
+			if err := os.WriteFile(path, out.Bytes(), 0600); err != nil {
+				t.Fatal(err)
+			}
+			e, _ := New()
+			defer e.Close()
+			text, err := e.PageText(context.Background(), path, 1)
+			if kind == "unique" {
+				if err != nil || text != "selected text" || e.RecoveryInfo() == "" {
+					t.Fatalf("text=%q recovery=%q err=%v", text, e.RecoveryInfo(), err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), "Prev reference") {
+				t.Fatalf("accepted uncertain revision history: text=%q err=%v", text, err)
 			}
 		})
 	}

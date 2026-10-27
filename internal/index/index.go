@@ -15,9 +15,9 @@ import (
 	"github.com/darkearl/semantic-search/internal/embedding"
 )
 
-// Version 3 rebuilds vectors with corrected standard-font spacing and rejects
-// partial text from truncated PDF values.
-const Version = 3
+// Version 4 rebuilds vectors produced before recovery honored the selected
+// PDF revision chain, which could include content from discarded revisions.
+const Version = 4
 
 type Page struct {
 	Number int       `json:"number"`

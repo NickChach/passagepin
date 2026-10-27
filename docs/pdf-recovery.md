@@ -10,8 +10,13 @@ remain readable, with intact object syntax and direct stream lengths. A
 structural scan records actual object boundaries,
 skips binary stream payloads by their declared lengths, and reconstructs offsets
 using the original tables' object identities and generations. Incremental
-revisions are applied in order, and free entries remain free. Valid declared
-object offsets take precedence; ambiguous duplicate objects are rejected.
+revisions are selected using the final `startxref` and the trailers' `/Prev`
+links. A broken `/Prev` is repaired only when exactly one earlier table's own
+`startxref` declared that offset. Missing, ambiguous, cyclic and forward history
+links are rejected. Physically present revisions outside the selected chain
+are excluded, including when searching for objects with damaged byte offsets.
+Free entries remain free. Valid declared object offsets take precedence;
+ambiguous duplicate objects are rejected.
 The recovered catalog and page tree must validate, including physical page
 counts. A late recovery during text extraction must preserve page identities,
 page dictionaries and inherited resource associations already observed.
@@ -23,6 +28,9 @@ damaged stream lengths and incomplete revisions are outside this recovery path.
 Healthy files with these supported normal-reading features still use normal
 parsing. Recovery can fix structural bookkeeping without resolving unrelated
 font, content-stream or text-extraction limitations.
+
+Index format version 4 requires rebuilding older indexes so vectors generated
+by the previous recovery logic cannot be reused.
 
 Unreadable PDFs are skipped as complete documents. Queued work for a failed PDF
 is discarded, running embedding calls are joined, and no vectors from that PDF

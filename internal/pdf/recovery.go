@@ -21,6 +21,17 @@ type xrefError struct{ error }
 
 func (e *xrefError) Unwrap() error { return e.error }
 
+type recoveryObject struct {
+	entry     xrefEntry
+	duplicate bool
+}
+
+type recoveryRevision struct {
+	offset, declared int64
+	trailer          dict
+	objects          map[int64]recoveryObject
+}
+
 // Recovery deliberately supports classic-table PDFs with intact object syntax
 // and direct stream lengths. It never searches arbitrary binary data for obj
 // markers, guesses missing content, or modifies the source file.
@@ -53,12 +64,10 @@ func (d *document) reconstruct() error {
 	if err != nil {
 		return err
 	}
-	seen := map[int64]xrefEntry{}
 	headers := map[int64]reference{}
-	duplicates := map[int64]bool{}
-	revisionSeen := map[int64]bool{}
-	var root value
-	objects, revisions := 0, 0
+	revisionObjects := map[int64]recoveryObject{}
+	var revisions []recoveryRevision
+	objects := 0
 	awaitingEOF := false
 	complete := false
 	for {
@@ -114,23 +123,22 @@ func (d *document) reconstruct() error {
 					return fmt.Errorf("missing endobj after stream")
 				}
 			}
-			seen[ref.number] = xrefEntry{kind: 1, offset: offset, generation: ref.generation}
 			headers[offset] = ref
-			if revisionSeen[ref.number] {
-				duplicates[ref.number] = true
+			_, duplicate := revisionObjects[ref.number]
+			revisionObjects[ref.number] = recoveryObject{
+				entry:     xrefEntry{kind: 1, offset: offset, generation: ref.generation},
+				duplicate: duplicate,
 			}
-			revisionSeen[ref.number] = true
 			awaitingEOF = false
 			continue
 		}
 		switch token {
 		case keyword("xref"):
 			complete = false
-			revisions++
-			if revisions > 128 {
+			if len(revisions) >= 128 {
 				return fmt.Errorf("recovery revision limit exceeded")
 			}
-			entries, trailer, err := d.classicXref(p)
+			_, trailer, err := d.classicXref(p)
 			if err != nil {
 				return err
 			}
@@ -140,39 +148,20 @@ func (d *document) reconstruct() error {
 			if trailer["XRefStm"] != nil {
 				return fmt.Errorf("hybrid cross-reference recovery is not supported")
 			}
-			for id, entry := range entries {
-				if entry.kind == 1 {
-					if declared, exists := headers[entry.offset]; exists && declared == (reference{id, entry.generation}) {
-						d.xref[id] = entry
-						continue
-					}
-					if duplicates[id] {
-						return fmt.Errorf("ambiguous duplicate object %d", id)
-					}
-					actual, exists := seen[id]
-					if !exists || actual.generation != entry.generation {
-						return fmt.Errorf("cannot locate object %d generation %d", id, entry.generation)
-					}
-					entry.offset = actual.offset
-				}
-				// Free entries are retained: deleted objects must not be resurrected.
-				d.xref[id] = entry
-			}
-			if len(d.xref) > maxRecoveryObjects {
-				return fmt.Errorf("recovery object limit exceeded")
-			}
-			if trailer["Root"] != nil {
-				root = trailer["Root"]
-			}
+			// Keep revisions separate until their /Prev links have been resolved.
+			// Reparse selected tables later instead of retaining every table's entries.
+			revisions = append(revisions, recoveryRevision{offset: offset, trailer: trailer, objects: revisionObjects})
 			awaitingEOF = true
 		case keyword("startxref"):
 			if !awaitingEOF {
 				return fmt.Errorf("startxref without a preceding table")
 			}
 			n, err := p.next()
-			if _, ok := integer(n); err != nil || !ok {
+			declared, ok := integer(n)
+			if err != nil || !ok {
 				return fmt.Errorf("invalid startxref during recovery")
 			}
+			revisions[len(revisions)-1].declared = declared
 			// Require the revision's EOF marker; p.skip would discard it as a comment.
 			for {
 				b, err := p.peek()
@@ -196,15 +185,19 @@ func (d *document) reconstruct() error {
 			if next, err := p.peek(); err != io.EOF && (err != nil || (!white(next) && next != 'x' && (next < '0' || next > '9'))) {
 				return fmt.Errorf("invalid revision EOF boundary")
 			}
-			revisionSeen, duplicates = map[int64]bool{}, map[int64]bool{}
+			revisionObjects = map[int64]recoveryObject{}
 			awaitingEOF = false
 			complete = true
 		default:
 			return fmt.Errorf("unexpected token outside PDF objects")
 		}
 	}
-	if revisions == 0 || awaitingEOF || !complete {
+	if len(revisions) == 0 || awaitingEOF || !complete {
 		return fmt.Errorf("no complete classic cross-reference revision")
+	}
+	root, err := d.recoverRevisionChain(revisions, headers)
+	if err != nil {
+		return err
 	}
 	catalog, err := d.dictionary(root)
 	if err != nil {
@@ -220,4 +213,101 @@ func (d *document) reconstruct() error {
 		return fmt.Errorf("no recovered pages")
 	}
 	return nil
+}
+
+// A valid byte offset always wins. A damaged /Prev can be repaired only when
+// exactly one earlier table declared that same offset in its own startxref.
+// Physical adjacency alone is not evidence that two revisions belong together.
+func (d *document) recoverRevisionChain(revisions []recoveryRevision, headers map[int64]reference) (value, error) {
+	byOffset := make(map[int64]int, len(revisions))
+	for i, revision := range revisions {
+		byOffset[revision.offset] = i
+	}
+	selected := len(revisions) - 1
+	if actual, ok := byOffset[revisions[selected].declared]; ok {
+		selected = actual
+	}
+	var chain []int // Newest to oldest, like normal parsing.
+	for {
+		if err := d.ctx.Err(); err != nil {
+			return nil, err
+		}
+		chain = append(chain, selected)
+		prev, exists := revisions[selected].trailer["Prev"]
+		if !exists {
+			break
+		}
+		offset, ok := integer(prev)
+		if !ok || offset <= 0 {
+			return nil, fmt.Errorf("invalid Prev reference during recovery")
+		}
+		previous, exact := byOffset[offset]
+		if !exact {
+			previous = -1
+			for i := 0; i < selected; i++ {
+				if revisions[i].declared != offset {
+					continue
+				}
+				if previous >= 0 {
+					return nil, fmt.Errorf("ambiguous Prev reference during recovery")
+				}
+				previous = i
+			}
+		}
+		if previous < 0 || previous >= selected {
+			return nil, fmt.Errorf("cannot resolve Prev reference during recovery")
+		}
+		selected = previous
+	}
+
+	var root value
+	for position, index := range chain {
+		revision := revisions[index]
+		entries, _, err := d.xrefSection(revision.offset)
+		if err != nil {
+			return nil, err
+		}
+		for id, entry := range entries {
+			if err := d.ctx.Err(); err != nil {
+				return nil, err
+			}
+			if _, exists := d.xref[id]; exists {
+				continue
+			}
+			if entry.kind == 1 {
+				declared, exists := headers[entry.offset]
+				if !exists || entry.offset >= revision.offset || declared != (reference{id, entry.generation}) {
+					// Search only this revision and its selected ancestors. Objects
+					// from a physically intervening, discarded revision cannot fill gaps.
+					found := false
+					for _, ancestor := range chain[position:] {
+						actual, exists := revisions[ancestor].objects[id]
+						if !exists {
+							continue
+						}
+						if actual.duplicate {
+							return nil, fmt.Errorf("ambiguous duplicate object %d", id)
+						}
+						if actual.entry.generation != entry.generation {
+							break
+						}
+						entry.offset, found = actual.entry.offset, true
+						break
+					}
+					if !found {
+						return nil, fmt.Errorf("cannot locate object %d generation %d in selected revision chain", id, entry.generation)
+					}
+				}
+			}
+			// Newer entries win, including free entries for deleted objects.
+			d.xref[id] = entry
+		}
+		if len(d.xref) > maxRecoveryObjects {
+			return nil, fmt.Errorf("recovery object limit exceeded")
+		}
+		if root == nil {
+			root = revision.trailer["Root"]
+		}
+	}
+	return root, nil
 }
