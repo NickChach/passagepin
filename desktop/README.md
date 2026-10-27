@@ -33,6 +33,9 @@ user-data folder, not beside the PDFs. Model/native caches follow the bundled CL
 behavior in the root README. The app reopens the last selected library on launch
 and imports the folder remembered by earlier versions automatically. An unavailable
 folder remains saved: reconnect it and select its name to retry, or remove it.
+Opening PassagePin again shows the existing window, restoring it if minimized,
+and requests focus. One app instance owns the profile so saved libraries cannot be
+overwritten by a second process.
 Use the **Dark mode** switch at the bottom of the sidebar to change appearance.
 The first launch follows the system's color preference; an explicit selection
 is saved locally and restored when the app is reopened.

@@ -187,13 +187,26 @@ function createWindow(): void {
   void window.loadFile(path.join(__dirname, '../build/index.html'));
   window.on('closed', () => { window = null; });
 }
-app.whenReady().then(() => {
-  handlers(); createWindow(); startup = startWorker();
-  app.on('activate', () => { if (!window) createWindow(); });
-}).catch((error: unknown) => { console.error(error); app.quit(); });
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', (event) => {
-  if (stopped) return;
-  event.preventDefault(); if (shuttingDown) return; shuttingDown = true;
-  void (async () => { await client?.stop(); stopped = true; app.quit(); })();
-});
+// Claim the profile before loading libraries or starting a window/worker. Atomic
+// registry saves alone cannot prevent separate processes overwriting each other.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (!window || window.isDestroyed()) { createWindow(); return; }
+    const current = window;
+    const focus = () => { current.show(); current.focus(); };
+    if (current.isMinimized()) { current.once('restore', focus); current.restore(); }
+    else focus();
+  });
+  app.whenReady().then(() => {
+    handlers(); if (!window) createWindow(); startup = startWorker();
+    app.on('activate', () => { if (!window) createWindow(); });
+  }).catch((error: unknown) => { console.error(error); app.quit(); });
+  app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+  app.on('before-quit', (event) => {
+    if (stopped) return;
+    event.preventDefault(); if (shuttingDown) return; shuttingDown = true;
+    void (async () => { await client?.stop(); stopped = true; app.quit(); })();
+  });
+}
