@@ -12,21 +12,21 @@ your machine.
 ## Desktop application
 
 The PassagePin Electron application with a React/TypeScript interface is in `desktop/`. It provides saved, named libraries with switching
-and removal, incremental indexing
-with progress and cancellation, ranked page results, extracted-page reading, and opening PDFs in the system viewer. A persistent Go worker
-keeps MiniLM and the active index loaded across searches. The renderer has no Node.js or direct filesystem access.
+and removal, incremental indexing with progress and cancellation, ranked page results, extracted-page reading, and opening PDFs in the
+system viewer. A persistent Go worker keeps MiniLM and the active index loaded across searches. The renderer has no Node.js or direct
+filesystem access.
 
 Page previews show the first 200,000 bytes of extracted text, followed by a shortening notice for longer pages. Indexing still uses the full
 extracted page text. Open the PDF in your system viewer to read the complete page.
 
 The current desktop packages target Linux x86-64 with glibc 2.38 or newer. Download the
-[PassagePin 0.5.0 AppImage](https://github.com/NickChach/passagepin/releases/download/v.0.5.0/PassagePin-0.5.0-x86_64.AppImage), or visit
+[PassagePin 0.6.0 AppImage](https://github.com/NickChach/passagepin/releases/download/v0.6.0/PassagePin-0.6.0-x86_64.AppImage), or visit
 [GitHub Releases](https://github.com/NickChach/passagepin/releases) for available versions and assets. From the directory containing the
 download:
 
 ```sh
 chmod +x PassagePin-0.5.0-x86_64.AppImage
-./PassagePin-0.5.0-x86_64.AppImage
+./PassagePin-0.6.0-x86_64.AppImage
 ```
 
 After making it executable, you can also launch it from a file manager. The AppImage requires an AppImage-capable system, commonly using
