@@ -32,7 +32,7 @@ chmod +x PassagePin-0.5.0-x86_64.AppImage
 After making it executable, you can also launch it from a file manager. The AppImage requires an AppImage-capable system, commonly using
 FUSE.
 
-Local packaging writes the AppImage and `PassagePin-0.5.0-x64.tar.gz` under `desktop/releases/`. The archive provides an alternative without
+Local packaging writes the AppImage and `PassagePin-0.6.0-x64.tar.gz` under `desktop/releases/`. The archive provides an alternative without
 the AppImage FUSE requirement: extract it and launch `linux-unpacked/passagepin`.
 
 The app includes Electron and the bundled Go worker; end users need no compiler, Node, Go, model download, or CLI setup. Windows/macOS
