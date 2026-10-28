@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +23,7 @@ type fakeModel struct {
 	calls   atomic.Int32
 	started chan struct{}
 	failure error
+	vector  []float32
 }
 
 func TestConcurrentCancellationPreservesPreviousLibrary(t *testing.T) {
@@ -71,6 +73,9 @@ func (m *fakeModel) Embed(ctx context.Context, text string) ([]float32, error) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}
+	if m.vector != nil {
+		return m.vector, nil
+	}
 	v := make([]float32, embedding.Dimensions)
 	if strings.Contains(text, "solar") || strings.Contains(text, "renewable") {
 		v[1] = 1
@@ -102,15 +107,34 @@ func TestPartialLibraryReportsAndFatalFailuresPreserveState(t *testing.T) {
 	if _, err := reopened.Handle(context.Background(), request("open", map[string]string{"directory": root, "index_path": path}), nil); err != nil || len(reopened.summary().Issues) != 1 {
 		t.Fatalf("report lost on reopen: %v", err)
 	}
-	model.failure = errors.New("inference failed")
-	if _, err := engine.Handle(context.Background(), request("index", map[string]bool{"rebuild": true}), nil); !errors.Is(err, model.failure) {
-		t.Fatalf("model error was swallowed: %v", err)
+	nonfinite := make([]float32, embedding.Dimensions)
+	nonfinite[0] = float32(math.NaN())
+	for _, tc := range []struct {
+		name    string
+		failure error
+		vector  []float32
+	}{
+		{"inference", errors.New("inference failed"), nil},
+		// The message alone must never classify an inference error as empty input.
+		{"same-message", errors.New(embedding.ErrNoTokens.Error()), nil},
+		{"canceled", context.Canceled, nil},
+		{"deadline", context.DeadlineExceeded, nil},
+		{"dimensions", nil, []float32{1}},
+		{"zero-norm", nil, make([]float32, embedding.Dimensions)},
+		{"nonfinite", nil, nonfinite},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model.failure, model.vector = tc.failure, tc.vector
+			if _, err := engine.Handle(context.Background(), request("index", map[string]bool{"rebuild": true}), nil); err == nil || tc.failure != nil && !errors.Is(err, tc.failure) {
+				t.Fatalf("model error was swallowed or changed: %v", err)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || engine.idx != previous || !bytes.Equal(before, after) {
+				t.Fatalf("model failure replaced saved library: %v", err)
+			}
+		})
 	}
-	after, _ := os.ReadFile(path)
-	if engine.idx != previous || !bytes.Equal(before, after) {
-		t.Fatal("model failure replaced saved library")
-	}
-	model.failure = nil
+	model.failure, model.vector = nil, nil
 	blocked := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(blocked, nil, 0600); err != nil {
 		t.Fatal(err)
@@ -119,7 +143,7 @@ func TestPartialLibraryReportsAndFatalFailuresPreserveState(t *testing.T) {
 	if _, err := engine.Handle(context.Background(), request("index", map[string]bool{"rebuild": true}), nil); err == nil {
 		t.Fatal("index-write failure was swallowed")
 	}
-	after, _ = os.ReadFile(path)
+	after, _ := os.ReadFile(path)
 	if engine.idx != previous || !bytes.Equal(before, after) {
 		t.Fatal("save failure replaced previous library")
 	}

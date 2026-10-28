@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -19,6 +20,10 @@ const (
 	Revision   = "1110a243fdf4706b3f48f1d95db1a4f5529b4d41"
 	Pipeline   = "bert-uncased-windows254-token-weighted-mean-l2-v1"
 )
+
+// ErrNoTokens means tokenizer normalization left no content to embed. Callers
+// indexing pages can treat this as an empty page rather than an inference failure.
+var ErrNoTokens = errors.New("text has no tokens")
 
 type Model struct {
 	tokenizer *Tokenizer
@@ -150,7 +155,7 @@ func (m *Model) Embed(ctx context.Context, text string) ([]float32, error) {
 	}
 	windows := m.tokenizer.Windows(text)
 	if len(windows) == 0 {
-		return nil, fmt.Errorf("text has no tokens")
+		return nil, ErrNoTokens
 	}
 	sum := make([]float64, Dimensions)
 	for _, ids := range windows {

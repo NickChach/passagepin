@@ -9,6 +9,15 @@ import (
 )
 
 func Write(path string, pages []string) error {
+	return write(path, pages, "")
+}
+
+// WriteWithCMap maps the page strings' character codes through a ToUnicode CMap.
+func WriteWithCMap(path string, pages []string, cmap string) error {
+	return write(path, pages, cmap)
+}
+
+func write(path string, pages []string, cmap string) error {
 	var buf bytes.Buffer
 	buf.WriteString("%PDF-1.4\n")
 	offsets := []int{0}
@@ -22,7 +31,12 @@ func Write(path string, pages []string) error {
 		kids = append(kids, fmt.Sprintf("%d 0 R", 4+i*2))
 	}
 	object(2, fmt.Sprintf("<< /Type /Pages /Kids [%s] /Count %d >>", strings.Join(kids, " "), len(pages)))
-	object(3, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+	cmapID := 4 + 2*len(pages)
+	font := "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica"
+	if cmap != "" {
+		font += fmt.Sprintf(" /ToUnicode %d 0 R", cmapID)
+	}
+	object(3, font+" >>")
 	escape := strings.NewReplacer("\\", "\\\\", "(", "\\(", ")", "\\)")
 	for i, page := range pages {
 		id := 4 + i*2
@@ -34,6 +48,9 @@ func Write(path string, pages []string) error {
 		}
 		content.WriteString("ET\n")
 		object(id+1, fmt.Sprintf("<< /Length %d >>\nstream\n%sendstream", content.Len(), content.String()))
+	}
+	if cmap != "" {
+		object(cmapID, fmt.Sprintf("<< /Length %d >>\nstream\n%s\nendstream", len(cmap), cmap))
 	}
 	xref := buf.Len()
 	fmt.Fprintf(&buf, "xref\n0 %d\n0000000000 65535 f \n", len(offsets))

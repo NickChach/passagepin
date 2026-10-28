@@ -214,9 +214,13 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 					if err == nil {
 						err = validateVector(vector)
 					}
-					if err != nil {
+					switch {
+					case errors.Is(err, embedding.ErrNoTokens):
+						// Leave the slot empty, just like whitespace-only text. The
+						// document compacts these slots and counts them as EmptyPages.
+					case err != nil:
 						fail(fmt.Errorf("%s page %d: %w", job.filename, job.number, err))
-					} else {
+					default:
 						*job.page = Page{Number: job.number, Vector: vector}
 					}
 				}
