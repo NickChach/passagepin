@@ -4,16 +4,18 @@ export interface Library {
   documents: number;
   pages: number;
   empty_pages: number;
+  failed_pages?: number;
   updated_at: string | null;
   issue?: string;
   issues?: FileIssue[];
 }
 export interface SavedLibrary { id: string; name: string; directory: string }
 export interface SavedLibraries { libraries: SavedLibrary[]; activeLibraryId: string | null }
-export interface FileIssue { filename: string; kind: 'recovered' | 'skipped'; reason: string; page?: number; feature?: string }
+export interface PageFailure { page: number; reason: string; feature?: string }
+export interface FileIssue { filename: string; kind: 'recovered' | 'partial' | 'skipped'; reason: string; page?: number; feature?: string; indexed_pages?: number; failures?: PageFailure[] }
 export interface SearchResult { filename: string; page: number; score: number }
 export interface PageText { filename: string; page: number; text: string }
-export interface Progress { phase: string; filename?: string; page?: number; pages?: number; reason?: string; recovered?: boolean }
+export interface Progress { phase: string; filename?: string; page?: number; pages?: number; reason?: string; recovered?: boolean; partial?: boolean }
 export interface WorkerReady { protocol: number; pid: number; model_loads: number }
 export type WorkerEvent =
   | { kind: 'starting' }
@@ -31,7 +33,7 @@ export interface DesktopAPI {
   selectLibrary(id: string): Promise<Library>;
   renameLibrary(id: string, name: string): Promise<State>;
   removeLibrary(id: string): Promise<State>;
-  index(rebuild: boolean): Promise<{ library: Library; stats: { indexed: number; reused: number; pages: number; empty_pages: number; recovered?: number; skipped?: number; issues?: FileIssue[] } }>;
+  index(rebuild: boolean): Promise<{ library: Library; stats: { indexed: number; reused: number; pages: number; empty_pages: number; recovered?: number; skipped?: number; partial?: number; failed_pages?: number; issues?: FileIssue[] } }>;
   search(query: string, top: number, minScore: number): Promise<{ results: SearchResult[]; query: string }>;
   page(filename: string, page: number): Promise<PageText>;
   openPDF(filename: string, page: number): Promise<void>;

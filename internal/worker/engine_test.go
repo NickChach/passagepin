@@ -148,6 +148,40 @@ func TestPartialLibraryReportsAndFatalFailuresPreserveState(t *testing.T) {
 		t.Fatal("save failure replaced previous library")
 	}
 }
+
+func TestPartiallyIndexedLibraryCountsAndPreviewSurviveReload(t *testing.T) {
+	root, path := library(t)
+	data, err := os.ReadFile(filepath.Join(root, "topics.pdf"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Preserve byte offsets and stream lengths while making only page 1 invalid.
+	data = bytes.Replace(data, []byte("(bread and flour)"), []byte("(bread and flour]"), 1)
+	if err := os.WriteFile(filepath.Join(root, "topics.pdf"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	engine := New(&fakeModel{}, "weights")
+	if _, err := engine.Handle(context.Background(), request("open", map[string]string{"directory": root, "index_path": path}), nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Handle(context.Background(), request("index", nil), nil); err != nil {
+		t.Fatal(err)
+	}
+	for pass := 0; pass < 2; pass++ {
+		summary := engine.summary()
+		if summary.Documents != 1 || summary.Pages != 1 || summary.EmptyPages != 1 || summary.FailedPages != 1 || len(summary.Issues) != 1 || summary.Issues[0].Kind != "partial" {
+			t.Fatalf("summary=%+v", summary)
+		}
+		result, err := engine.Handle(context.Background(), request("page", map[string]any{"filename": "topics.pdf", "page": 3}), nil)
+		if err != nil || result == nil {
+			t.Fatalf("healthy preview failed: %v", err)
+		}
+		engine = New(&fakeModel{}, "weights")
+		if _, err := engine.Handle(context.Background(), request("open", map[string]string{"directory": root, "index_path": path}), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
 func request(method string, params any) Request {
 	raw, _ := json.Marshal(params)
 	return Request{ID: method, Method: method, Params: raw}

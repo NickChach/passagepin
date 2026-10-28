@@ -38,14 +38,19 @@ Each request has one terminal `result` or `error` response with the same ID:
 ```
 
 Library summaries contain `directory`, `indexed`, `documents`, `pages`,
-`empty_pages`, `updated_at`, optional `issue` (incompatible index), and optional
+`empty_pages`, `failed_pages`, `updated_at`, optional `issue` (incompatible index), and optional
 `issues` (per-file reports). Index results contain a
 `library` summary and `stats` (`indexed`, `reused`, `pages`, `empty_pages`,
-`timings`, `recovered`, `skipped`, and optional `issues`). Each file issue has
-`filename`, `kind` (`recovered` or `skipped`), `reason`, and an optional physical
-`page` for extraction failures. Reports are persisted in the index. `recovered`
-counts indexed documents using recovery, including reused recovered documents.
-It is a subset of `indexed + reused`, not an additional document count.
+`timings`, `recovered`, `partial`, `skipped`, `failed_pages`, and optional `issues`). Each file issue has
+`filename`, `kind` (`recovered`, `partial`, or `skipped`), `reason`, and an optional physical
+`page` for extraction failures. Partial reports also include `indexed_pages` and
+`failures`, an ordered array of `{page, reason, feature?}` entries. Fully skipped
+documents can include `failures` when individual pages were attempted. Failed
+pages are counted separately from empty/tokenless pages. Reports are persisted in
+the index and restored when unchanged documents are reused. `partial` counts
+documents with retained searchable pages and extraction failures. `recovered`
+counts indexed documents using cross-reference recovery, including reused documents.
+Both counts are subsets of `indexed + reused`, not additional document counts.
 Timings contain `hashing_ns`, `extraction_ns`, `embedding_ns`,
 `total_ns`, and `saving_ns`. Stage times are cumulative across workers and can
 exceed the build wall time (`total_ns`); embedding includes tokenization and
@@ -73,7 +78,7 @@ fields equal the physical page count). Clients should keep independent active
 progress entries keyed by the full relative filename and remove each entry on
 `completed` or `reused`, rather than treating the last page event as completion.
 A `skipped` event also removes an active PDF, with `reason` and an optional
-physical `page`. `completed` and `reused` can include `recovered: true`.
+physical `page`. `completed` and `reused` can include `recovered: true` and/or `partial: true`.
 `discovering` starts a fresh progress snapshot; terminal success, cancellation,
 failure, and worker restart clear the active entries.
 
@@ -87,8 +92,11 @@ It responds with `{"cancelled":true}` when the active ID matched. The operation
 subsequently returns an error with code `cancelled`; response ordering is not
 fixed. Cancellation is cooperative between bounded inference calls. Failed or
 cancelled builds preserve the previous saved index and in-memory library. An
-individual PDF read/extraction failure is a successful partial update with a
-file report; it does not fail the request. Model failures, traversal failures,
+individual page extraction failure excludes that page and continues with later
+physical pages. A document with healthy searchable pages is retained with a
+partial report; a document with failed pages and no searchable pages is skipped.
+Unreadable document structure or recovery that changes page identity discards
+the entire document. These file reports do not fail the request. Model failures, traversal failures,
 process/disk resource errors and index-write failures remain fatal.
 All indexing workers finish and owned PDF readers close before a terminal
 response is sent. The index is sorted into filename and physical-page order

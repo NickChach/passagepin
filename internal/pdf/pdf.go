@@ -76,21 +76,24 @@ func (e *Extractor) PageText(ctx context.Context, path string, page int) (string
 	}
 	text, err := d.pageText(ctx, d.pages[page-1])
 	var structural *xrefError
-	if err == nil || d.recovery != "" || ctx.Err() != nil || !errors.As(err, &structural) {
+	if err == nil || ctx.Err() != nil || !errors.As(err, &structural) {
 		return text, err
+	}
+	if d.recovery != "" {
+		return "", &DocumentError{err}
 	}
 	recovered, recoveryErr := recoverDocument(ctx, d.file, err)
 	if recoveryErr != nil {
-		return "", recoveryErr
+		return "", &DocumentError{recoveryErr}
 	}
 	// Earlier pages may already be embedded. Recovery must preserve their tree
 	// identities, page dictionaries and inherited resource associations.
 	if len(recovered.pages) != len(d.pages) {
-		return "", fmt.Errorf("recovery changed page numbering")
+		return "", &DocumentError{fmt.Errorf("recovery changed page numbering")}
 	}
 	for i := range d.pages {
 		if d.pages[i].identity != recovered.pages[i].identity || !reflect.DeepEqual(d.pages[i].object, recovered.pages[i].object) || !reflect.DeepEqual(d.pages[i].resources, recovered.pages[i].resources) {
-			return "", fmt.Errorf("recovery changed page structure")
+			return "", &DocumentError{fmt.Errorf("recovery changed page structure")}
 		}
 	}
 	e.doc = recovered

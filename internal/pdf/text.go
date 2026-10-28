@@ -156,10 +156,15 @@ func (r *interpreter) selectFont(n name, size float64) error {
 		if !exists {
 			return fmt.Errorf("missing font /%s", n)
 		}
-		f, err = r.d.loadFont(raw)
-		if err != nil {
-			return fmt.Errorf("font /%s: %w", n, err)
-		}
+		// Tf may select an unused font. Unicode mappings and embedded font data
+		// are needed only when a text-show operator actually consumes glyphs.
+		f = &font{load: func() (*font, error) {
+			loaded, err := r.d.loadFont(raw)
+			if err != nil {
+				return nil, fmt.Errorf("font /%s: %w", n, err)
+			}
+			return loaded, nil
+		}}
 		r.fonts[n] = f
 	}
 	r.state.font, r.state.size = f, size
@@ -172,6 +177,13 @@ func (r *interpreter) show(v value) error {
 	}
 	if !r.state.inside || r.state.font == nil {
 		return fmt.Errorf("text shown without BT and a selected font")
+	}
+	if r.state.font.load != nil {
+		loaded, err := r.state.font.load()
+		if err != nil {
+			return err
+		}
+		*r.state.font = *loaded
 	}
 	var text string
 	var width float64
@@ -222,7 +234,13 @@ func (r *interpreter) run(data []byte, depth int) error {
 			return fmt.Errorf("too many page content operations")
 		}
 		if op == "BI" {
-			return unsupported("inline-image", "inline images are not supported; use PDFs with image XObjects")
+			if len(args) != 0 {
+				return fmt.Errorf("inline image has unexpected operands")
+			}
+			if err := r.skipInlineImage(p, data); err != nil {
+				return fmt.Errorf("inline image: %w", err)
+			}
+			continue
 		}
 		if err := r.operator(op, args, depth); err != nil {
 			return fmt.Errorf("operator %s: %w", op, err)

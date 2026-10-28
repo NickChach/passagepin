@@ -9,15 +9,16 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"time"
 
 	"github.com/darkearl/semantic-search/internal/embedding"
 )
 
-// Version 5 rebuilds vectors so marked-content ActualText replacements are
-// indexed, and inherited ToUnicode maps cannot silently produce partial text.
-const Version = 5
+// Version 6 rebuilds vectors after font/inline-image extraction fixes and stores
+// page failures separately from empty pages in partially indexed documents.
+const Version = 6
 
 type Page struct {
 	Number int       `json:"number"`
@@ -25,11 +26,18 @@ type Page struct {
 }
 
 type Document struct {
-	Filename  string `json:"filename"`
-	SHA256    string `json:"sha256"`
-	PageCount int    `json:"page_count"`
-	Pages     []Page `json:"pages"`
-	Recovery  string `json:"recovery,omitempty"`
+	Filename  string        `json:"filename"`
+	SHA256    string        `json:"sha256"`
+	PageCount int           `json:"page_count"`
+	Pages     []Page        `json:"pages"`
+	Recovery  string        `json:"recovery,omitempty"`
+	Failures  []PageFailure `json:"failures,omitempty"`
+}
+
+type PageFailure struct {
+	Page    int    `json:"page"`
+	Reason  string `json:"reason"`
+	Feature string `json:"feature,omitempty"`
 }
 
 type Index struct {
@@ -43,11 +51,13 @@ type Index struct {
 }
 
 type FileIssue struct {
-	Filename string `json:"filename"`
-	Kind     string `json:"kind"` // recovered or skipped
-	Reason   string `json:"reason"`
-	Page     int    `json:"page,omitempty"`
-	Feature  string `json:"feature,omitempty"`
+	Filename     string        `json:"filename"`
+	Kind         string        `json:"kind"` // recovered, partial, or skipped
+	Reason       string        `json:"reason"`
+	Page         int           `json:"page,omitempty"`
+	Feature      string        `json:"feature,omitempty"`
+	IndexedPages int           `json:"indexed_pages,omitempty"`
+	Failures     []PageFailure `json:"failures,omitempty"`
 }
 
 type Extractor interface {
@@ -60,14 +70,16 @@ type Embedder interface {
 }
 
 type Stats struct {
-	Indexed    int         `json:"indexed"`
-	Reused     int         `json:"reused"`
-	Pages      int         `json:"pages"`
-	EmptyPages int         `json:"empty_pages"`
-	Timings    Timings     `json:"timings"`
-	Recovered  int         `json:"recovered"`
-	Skipped    int         `json:"skipped"`
-	Issues     []FileIssue `json:"issues,omitempty"`
+	Indexed     int         `json:"indexed"`
+	Reused      int         `json:"reused"`
+	Pages       int         `json:"pages"`
+	EmptyPages  int         `json:"empty_pages"`
+	Timings     Timings     `json:"timings"`
+	Recovered   int         `json:"recovered"`
+	Skipped     int         `json:"skipped"`
+	Partial     int         `json:"partial"`
+	FailedPages int         `json:"failed_pages"`
+	Issues      []FileIssue `json:"issues,omitempty"`
 }
 
 // Timings are cumulative worker time, except Total (build wall time) and Saving.
@@ -87,6 +99,7 @@ type Progress struct {
 	Pages     int    `json:"pages,omitempty"`
 	Reason    string `json:"reason,omitempty"`
 	Recovered bool   `json:"recovered,omitempty"`
+	Partial   bool   `json:"partial,omitempty"`
 }
 
 func Load(path string) (*Index, error) {
@@ -115,9 +128,25 @@ func (idx *Index) Validate() error {
 		return fmt.Errorf("incompatible index; rebuild with pdfsearch index --rebuild")
 	}
 	seen := make(map[string]bool)
+	partial := make(map[string]FileIssue)
+	reports := make(map[[2]string]bool)
 	for _, issue := range idx.Issues {
-		if !filepath.IsLocal(issue.Filename) || issue.Filename == "." || (issue.Kind != "skipped" && issue.Kind != "recovered") || issue.Reason == "" || issue.Page < 0 {
+		if !filepath.IsLocal(issue.Filename) || issue.Filename == "." || (issue.Kind != "skipped" && issue.Kind != "recovered" && issue.Kind != "partial") || issue.Reason == "" || issue.Page < 0 || issue.IndexedPages < 0 {
 			return fmt.Errorf("invalid index file issue")
+		}
+		if issue.Kind == "partial" && (issue.IndexedPages < 1 || len(issue.Failures) == 0) {
+			return fmt.Errorf("invalid partial index file issue")
+		}
+		if err := validateFailures(issue.Failures, 0); err != nil {
+			return err
+		}
+		key := [2]string{issue.Filename, issue.Kind}
+		if reports[key] {
+			return fmt.Errorf("duplicate index file issue")
+		}
+		reports[key] = true
+		if issue.Kind == "partial" {
+			partial[issue.Filename] = issue
 		}
 	}
 	for _, doc := range idx.Documents {
@@ -125,9 +154,21 @@ func (idx *Index) Validate() error {
 			return fmt.Errorf("invalid index document %q", doc.Filename)
 		}
 		seen[doc.Filename] = true
+		issue, reported := partial[doc.Filename]
+		if reports[[2]string{doc.Filename, "skipped"}] || (len(doc.Failures) > 0) != reported || reported && (issue.IndexedPages != len(doc.Pages) || !slices.Equal(issue.Failures, doc.Failures)) {
+			return fmt.Errorf("inconsistent page failure report for %q", doc.Filename)
+		}
+		delete(partial, doc.Filename)
+		if err := validateFailures(doc.Failures, doc.PageCount); err != nil {
+			return err
+		}
+		failed := make(map[int]bool, len(doc.Failures))
+		for _, failure := range doc.Failures {
+			failed[failure.Page] = true
+		}
 		previous := 0
 		for _, page := range doc.Pages {
-			if page.Number <= previous || page.Number > doc.PageCount {
+			if page.Number <= previous || page.Number > doc.PageCount || failed[page.Number] {
 				return fmt.Errorf("invalid page number for %q", doc.Filename)
 			}
 			previous = page.Number
@@ -135,6 +176,20 @@ func (idx *Index) Validate() error {
 				return fmt.Errorf("%s page %d: %w", doc.Filename, page.Number, err)
 			}
 		}
+	}
+	if len(partial) > 0 {
+		return fmt.Errorf("partial report has no indexed document")
+	}
+	return nil
+}
+
+func validateFailures(failures []PageFailure, count int) error {
+	previous := 0
+	for _, failure := range failures {
+		if failure.Page <= previous || (count > 0 && failure.Page > count) || failure.Reason == "" {
+			return fmt.Errorf("invalid index page failure")
+		}
+		previous = failure.Page
 	}
 	return nil
 }

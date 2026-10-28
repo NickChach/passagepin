@@ -3,6 +3,7 @@ package pdf
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -22,6 +23,9 @@ type unicodeMap struct {
 	invalid map[string]error
 }
 type font struct {
+	load         func() (*font, error)
+	fallback     func() (map[int]string, error)
+	recovered    map[int]string
 	label        string
 	composite    bool
 	unicode      *unicodeMap
@@ -29,6 +33,8 @@ type font struct {
 	widths       map[int]float64
 	defaultWidth float64
 }
+
+var errEmptyUnicodeMap = errors.New("ToUnicode CMap has no Unicode mappings")
 
 func unicodeString(raw []byte) (string, error) {
 	if len(raw) == 0 || len(raw)%2 != 0 || len(raw) > 1024 {
@@ -200,7 +206,7 @@ func parseCMap(data []byte) (*unicodeMap, error) {
 		previous = nil
 	}
 	if len(result.codes) == 0 {
-		return nil, fmt.Errorf("ToUnicode CMap has no Unicode mappings")
+		return result, errEmptyUnicodeMap
 	}
 	if len(result.ranges) == 0 {
 		// Some producers omit codespacerange; infer widths from explicit mappings.
@@ -238,8 +244,11 @@ func (d *document) loadFont(v value) (*font, error) {
 			return nil, err
 		}
 		f.unicode, err = parseCMap(data)
-		if err != nil {
+		if err != nil && !errors.Is(err, errEmptyUnicodeMap) {
 			return nil, err
+		}
+		if errors.Is(err, errEmptyUnicodeMap) {
+			f.unicode = nil
 		}
 	}
 	composite := fd["Subtype"] == name("Type0")
@@ -253,9 +262,6 @@ func (d *document) loadFont(v value) (*font, error) {
 		if !ok || (n != "Identity-H") {
 			return nil, unsupported("composite-font-encoding", "unsupported composite font encoding %v (requires Identity-H)", enc)
 		}
-		if f.unicode == nil {
-			return nil, unsupported("missing-unicode-map", "composite font needs a ToUnicode map")
-		}
 		descendants, err := d.resolve(fd["DescendantFonts"])
 		if err != nil {
 			return nil, err
@@ -267,6 +273,9 @@ func (d *document) loadFont(v value) (*font, error) {
 		descendant, err := d.dictionary(list[0])
 		if err != nil {
 			return nil, err
+		}
+		if descendant["Subtype"] == name("CIDFontType2") {
+			f.fallback = func() (map[int]string, error) { return d.embeddedCIDUnicode(descendant) }
 		}
 		f.defaultWidth = 1000
 		defaultWidth, err := d.resolve(descendant["DW"])
@@ -337,7 +346,7 @@ func (d *document) loadFont(v value) (*font, error) {
 		}
 		return f, nil
 	}
-	f.encoding, err = simpleEncoding(enc)
+	f.encoding, err = simpleFontEncoding(enc, f.label)
 	if err != nil && f.unicode == nil {
 		return nil, err
 	}
@@ -478,23 +487,33 @@ func (f *font) decode(raw []byte, budget int) (string, float64, int, int, error)
 	glyphCount := 0
 	for len(raw) > 0 {
 		size := 1
+		if f.composite {
+			size = 2
+		} // Identity-H, independent of ToUnicode codespaces.
+		if len(raw) < size {
+			return "", 0, 0, 0, fmt.Errorf("incomplete composite character code")
+		}
 		var chars string
 		found := false
 		if f.unicode != nil {
-			for _, r := range f.unicode.ranges {
-				n := len(r.low)
-				if len(raw) >= n && bytes.Compare(raw[:n], r.low) >= 0 && bytes.Compare(raw[:n], r.high) <= 0 {
-					size = n
-					chars, found = f.unicode.codes[string(raw[:n])]
-					if err := f.unicode.invalid[string(raw[:n])]; err != nil {
-						return "", 0, 0, 0, fmt.Errorf("font %s ToUnicode code <%x>: %w", f.label, raw[:n], err)
-					}
-					break
-				}
+			chars, found = f.unicode.codes[string(raw[:size])]
+			if err := f.unicode.invalid[string(raw[:size])]; err != nil {
+				return "", 0, 0, 0, fmt.Errorf("font %s ToUnicode code <%x>: %w", f.label, raw[:size], err)
 			}
 		}
 		if !found && size == 1 && f.encoding != nil {
 			chars, found = f.encoding[raw[0]]
+		}
+		if !found && f.fallback != nil {
+			var err error
+			f.recovered, err = f.fallback()
+			f.fallback = nil
+			if err != nil {
+				return "", 0, 0, 0, err
+			}
+		}
+		if !found {
+			chars, found = f.recovered[codeNumber(raw[:size])]
 		}
 		if !found {
 			return "", 0, 0, 0, unsupported("missing-unicode-map", "font %s has no Unicode mapping for character code %x", f.label, raw[:min(size, len(raw))])
@@ -520,6 +539,10 @@ func (f *font) decode(raw []byte, budget int) (string, float64, int, int, error)
 	return text.String(), width, spaces, glyphCount, nil
 }
 func simpleEncoding(v value) (map[byte]string, error) {
+	return simpleFontEncoding(v, "")
+}
+
+func simpleFontEncoding(v value, fontName string) (map[byte]string, error) {
 	base := name("StandardEncoding")
 	var differences array
 	switch encoding := v.(type) {
@@ -586,6 +609,12 @@ func simpleEncoding(v value) (map[byte]string, error) {
 			return nil, fmt.Errorf("invalid Differences glyph")
 		}
 		text, ok := glyphUnicode(string(glyph))
+		// MathematicalPi uses proprietary names outside Adobe's glyph list.
+		// H11011 is its tilde (verified against the rendered font); scope this
+		// alias to that font family rather than interpreting arbitrary H names.
+		if !ok && baseFontName(fontName) == "MathematicalPi-Three" && glyph == name("H11011") {
+			text, ok = "~", true
+		}
 		if ok {
 			result[byte(code)] = text
 		} else {

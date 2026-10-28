@@ -55,12 +55,16 @@ func loadStandardFonts() map[string]*standardMetrics {
 	return fonts
 }
 
-func (f *font) useStandardWidths(builtInEncoding bool) {
-	base := f.label
+func baseFontName(base string) string {
 	// Subset font names prefix the PostScript name with six uppercase letters.
 	if len(base) > 7 && base[6] == '+' && strings.Trim(base[:6], "ABCDEFGHIJKLMNOPQRSTUVWXYZ") == "" {
 		base = base[7:]
 	}
+	return base
+}
+
+func (f *font) useStandardWidths(builtInEncoding bool) {
+	base := baseFontName(f.label)
 	metrics := standardFonts[base]
 	if metrics == nil {
 		return

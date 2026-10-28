@@ -126,13 +126,11 @@
       "file": "inline-image.pdf",
       "features": [
         "inline-image",
-        "unsupported"
+        "text-after-image"
       ],
       "pages": [
         {
-          "text": "",
-          "error_contains": "inline images are not supported",
-          "unsupported_feature": "inline-image"
+          "text": "Text after image"
         }
       ]
     },

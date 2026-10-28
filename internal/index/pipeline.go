@@ -89,6 +89,19 @@ type documentResult struct {
 	skipped *FileIssue
 }
 
+func fatalReadError(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE) || errors.Is(err, syscall.ENOMEM) || errors.Is(err, syscall.EIO)
+}
+
+func pageFailure(page int, err error) PageFailure {
+	failure := PageFailure{Page: page, Reason: issueReason(err)}
+	var feature *pdf.UnsupportedFeatureError
+	if errors.As(err, &feature) {
+		failure.Feature = feature.Feature
+	}
+	return failure
+}
+
 func issueReason(err error) string {
 	runes := []rune(err.Error())
 	if len(runes) > 1000 {
@@ -144,6 +157,9 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 	}
 	cache := make(map[string]Document)
 	if old != nil {
+		if old.Version != Version {
+			return nil, stats, fmt.Errorf("incompatible index; use --rebuild")
+		}
 		if old.Root != root || old.Fingerprint != fingerprint {
 			return nil, stats, fmt.Errorf("index belongs to another directory or model; use --rebuild")
 		}
@@ -180,19 +196,25 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 	// Backpressure bounds queued page strings to twice the inference worker count.
 	pages := make(chan pageJob, 2*embeddingWorkers)
 	documents := make(chan documentResult)
-	skip := func(filename string, page int, err error) {
+	skip := func(filename string, page int, err error, failures ...PageFailure) {
 		if ctx.Err() != nil {
 			fail(ctx.Err())
 			return
 		}
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, syscall.EMFILE) || errors.Is(err, syscall.ENFILE) || errors.Is(err, syscall.ENOMEM) || errors.Is(err, syscall.EIO) {
+		if fatalReadError(err) {
 			fail(err)
 			return
 		}
-		issue := FileIssue{Filename: filename, Kind: "skipped", Reason: issueReason(err), Page: page}
+		if page > 0 && len(failures) == 0 {
+			failures = []PageFailure{pageFailure(page, err)}
+		}
+		issue := FileIssue{Filename: filename, Kind: "skipped", Reason: issueReason(err), Page: page, Failures: failures}
 		var unsupported *pdf.UnsupportedFeatureError
 		if errors.As(err, &unsupported) {
 			issue.Feature = unsupported.Feature
+		}
+		if len(failures) > 0 {
+			issue.Feature = failures[0].Feature
 		}
 		notify(Progress{Phase: "skipped", Filename: filename, Page: page, Reason: issue.Reason})
 		if progress != nil {
@@ -256,7 +278,7 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 					continue
 				}
 				if doc, ok := cache[rel]; ok && doc.SHA256 == digest {
-					notify(Progress{Phase: "reused", Filename: rel, Pages: doc.PageCount, Recovered: doc.Recovery != ""})
+					notify(Progress{Phase: "reused", Filename: rel, Pages: doc.PageCount, Recovered: doc.Recovery != "", Partial: len(doc.Failures) > 0})
 					select {
 					case documents <- documentResult{doc: doc, reused: true}:
 					case <-ctx.Done():
@@ -282,9 +304,18 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 					text, err := extractor.PageText(ctx, path, page)
 					extraction.Add(int64(time.Since(start)))
 					if err != nil {
-						readErr, failedPage = err, page
-						discard.Store(true)
-						break
+						if ctx.Err() != nil || fatalReadError(err) {
+							fail(err)
+							break
+						}
+						var structural *pdf.DocumentError
+						if errors.As(err, &structural) {
+							readErr, failedPage = err, page
+							discard.Store(true)
+							break
+						}
+						doc.Failures = append(doc.Failures, pageFailure(page, err))
+						continue
 					}
 					if strings.TrimSpace(text) == "" {
 						continue
@@ -326,7 +357,11 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 				}
 				doc.Pages = kept
 				doc.Recovery = recoveryInfo(extractor)
-				notify(Progress{Phase: "completed", Filename: rel, Page: count, Pages: count, Recovered: doc.Recovery != ""})
+				if len(doc.Pages) == 0 && len(doc.Failures) > 0 {
+					skip(rel, doc.Failures[0].Page, fmt.Errorf("%s", doc.Failures[0].Reason), doc.Failures...)
+					continue
+				}
+				notify(Progress{Phase: "completed", Filename: rel, Page: count, Pages: count, Recovered: doc.Recovery != "", Partial: len(doc.Failures) > 0})
 				select {
 				case documents <- documentResult{doc: doc}:
 				case <-ctx.Done():
@@ -370,10 +405,21 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 	for result := range documents {
 		if result.skipped != nil {
 			stats.Skipped++
+			stats.FailedPages += len(result.skipped.Failures)
 			idx.Issues = append(idx.Issues, *result.skipped)
 			continue
 		}
 		idx.Documents = append(idx.Documents, result.doc)
+		if len(result.doc.Failures) > 0 {
+			stats.Partial++
+			stats.FailedPages += len(result.doc.Failures)
+			idx.Issues = append(idx.Issues, FileIssue{Filename: result.doc.Filename, Kind: "partial", Reason: fmt.Sprintf("%d pages failed extraction", len(result.doc.Failures)), Page: result.doc.Failures[0].Page, IndexedPages: len(result.doc.Pages), Failures: result.doc.Failures})
+			if progress != nil {
+				outputMu.Lock()
+				fmt.Fprintf(progress, "Partially indexed: %s; %d searchable pages; %d pages failed extraction\n", result.doc.Filename, len(result.doc.Pages), len(result.doc.Failures))
+				outputMu.Unlock()
+			}
+		}
 		if result.doc.Recovery != "" {
 			stats.Recovered++
 			idx.Issues = append(idx.Issues, FileIssue{Filename: result.doc.Filename, Kind: "recovered", Reason: issueReason(fmt.Errorf("%s", result.doc.Recovery))})
@@ -384,7 +430,7 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 			stats.Indexed++
 		}
 		stats.Pages += len(result.doc.Pages)
-		stats.EmptyPages += result.doc.PageCount - len(result.doc.Pages)
+		stats.EmptyPages += result.doc.PageCount - len(result.doc.Pages) - len(result.doc.Failures)
 	}
 	stats.Timings = Timings{Hashing: time.Duration(hashing.Load()), Extraction: time.Duration(extraction.Load()), Embedding: time.Duration(embeddings.Load()), Total: time.Since(started)}
 	if firstErr != nil {
@@ -395,7 +441,12 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 	}
 	// Completion order is nondeterministic; the persisted index remains stable.
 	sort.Slice(idx.Documents, func(i, j int) bool { return idx.Documents[i].Filename < idx.Documents[j].Filename })
-	sort.Slice(idx.Issues, func(i, j int) bool { return idx.Issues[i].Filename < idx.Issues[j].Filename })
+	sort.Slice(idx.Issues, func(i, j int) bool {
+		if idx.Issues[i].Filename == idx.Issues[j].Filename {
+			return idx.Issues[i].Kind < idx.Issues[j].Kind
+		}
+		return idx.Issues[i].Filename < idx.Issues[j].Filename
+	})
 	stats.Issues = idx.Issues
 	return idx, stats, nil
 }

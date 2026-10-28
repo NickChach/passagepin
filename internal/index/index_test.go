@@ -34,11 +34,47 @@ func unit(axis int) []float32                                         { v := mak
 func (f *fakeModel) Embed(context.Context, string) ([]float32, error) { f.calls++; return unit(0), nil }
 
 func TestPreviousExtractorIndexNeedsRebuild(t *testing.T) {
-	for _, version := range []int{2, 3, 4} {
+	for _, version := range []int{2, 3, 4, 5} {
 		idx := &Index{Version: version, Root: t.TempDir(), Model: embedding.ModelID, Fingerprint: "weights"}
 		if err := idx.Validate(); err == nil || !strings.Contains(err.Error(), "rebuild") {
 			t.Fatalf("accepted vectors from extractor version %d: %v", version, err)
 		}
+	}
+}
+
+func TestInvalidPartialReportsCannotHideMissingOrSearchableFailures(t *testing.T) {
+	for _, tc := range []string{"overlap", "out-of-range", "duplicate", "missing-report", "orphan-report", "wrong-count", "wrong-details"} {
+		t.Run(tc, func(t *testing.T) {
+			failure := PageFailure{Page: 2, Reason: "unmapped glyph"}
+			idx := &Index{Version: Version, Root: t.TempDir(), Model: embedding.ModelID, Fingerprint: "weights",
+				Documents: []Document{{Filename: "book.pdf", SHA256: strings.Repeat("0", 64), PageCount: 3, Pages: []Page{{Number: 1, Vector: unit(0)}, {Number: 3, Vector: unit(0)}}, Failures: []PageFailure{failure}}},
+				Issues:    []FileIssue{{Filename: "book.pdf", Kind: "partial", Reason: "1 page failed", IndexedPages: 2, Failures: []PageFailure{failure}}},
+			}
+			if err := idx.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			switch tc {
+			case "overlap":
+				idx.Documents[0].Pages[1].Number = 2
+			case "out-of-range":
+				idx.Documents[0].Failures[0].Page = 4
+				idx.Issues[0].Failures[0].Page = 4
+			case "duplicate":
+				idx.Documents[0].Failures = append(idx.Documents[0].Failures, failure)
+				idx.Issues[0].Failures = append(idx.Issues[0].Failures, failure)
+			case "missing-report":
+				idx.Issues = nil
+			case "orphan-report":
+				idx.Documents = nil
+			case "wrong-count":
+				idx.Issues[0].IndexedPages++
+			case "wrong-details":
+				idx.Issues[0].Failures[0].Reason = "different"
+			}
+			if err := idx.Validate(); err == nil {
+				t.Fatal("accepted inconsistent failure metadata")
+			}
+		})
 	}
 }
 

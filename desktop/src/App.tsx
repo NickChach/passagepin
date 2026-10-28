@@ -115,7 +115,7 @@ export default function App() {
       setState((s) => ({ ...s, library: result.library }));
       setResults([]); setSelected(null); setPreview(null); setLastQuery('');
       const summary = result.stats.pages > 0 ? `${result.stats.pages.toLocaleString()} searchable pages are ready.` : 'No searchable pages were indexed.';
-      setNotice(`${summary} ${result.stats.indexed} PDFs indexed, ${result.stats.reused} unchanged PDFs reused. ${result.stats.recovered || result.stats.skipped ? `${result.stats.recovered ?? 0} indexed using recovery, ${result.stats.skipped ?? 0} skipped. See the indexing report for details.` : ''}`);
+      setNotice(`${summary} ${result.stats.indexed} PDFs indexed, ${result.stats.reused} unchanged PDFs reused. ${result.stats.recovered || result.stats.skipped || result.stats.partial ? `${result.stats.partial ?? 0} partially indexed, ${result.stats.recovered ?? 0} indexed using recovery, ${result.stats.skipped ?? 0} skipped. See the indexing report for details.` : ''}`);
     });
   }
   async function readPage(result: SearchResult) {
@@ -140,6 +140,7 @@ export default function App() {
   const fileIssues = library?.issues ?? [];
   const skippedFiles = fileIssues.filter((issue) => issue.kind === 'skipped').length;
   const recoveredFiles = fileIssues.filter((issue) => issue.kind === 'recovered').length;
+  const partialFiles = fileIssues.filter((issue) => issue.kind === 'partial').length;
   const cancellable = state.operation === 'searching' || state.operation === 'reading';
   const canSearch = ready && library?.indexed && library.pages > 0 && !busy && Boolean(query.trim());
   const statusLabel = state.error ? 'Search engine stopped' : ready ? 'Search engine ready' : 'Preparing search engine…';
@@ -174,7 +175,7 @@ export default function App() {
             <span className="index-file-page">Page {file.page} of {file.pages}</span>
             <progress max={file.pages} value={file.page} aria-label={`Indexing ${file.filename}`} />
           </li>)}</ul> : <p className="index-progress-message">{progress.completed || progress.reused || progress.skipped ? 'Updating your library…' : 'Reading your PDFs…'}</p>}
-          {(progress.completed > 0 || progress.reused > 0 || progress.skipped > 0) && <p className="index-progress-summary">{progress.completed} processed, {progress.reused} unchanged {progress.reused === 1 ? 'PDF' : 'PDFs'} reused{progress.skipped > 0 ? `, ${progress.skipped} skipped` : ''}{progress.recovered > 0 ? `, ${progress.recovered} using recovery` : ''}</p>}
+          {(progress.completed > 0 || progress.reused > 0 || progress.skipped > 0) && <p className="index-progress-summary">{progress.completed} processed, {progress.reused} unchanged {progress.reused === 1 ? 'PDF' : 'PDFs'} reused{progress.partial > 0 ? `, ${progress.partial} partially indexed` : ''}{progress.skipped > 0 ? `, ${progress.skipped} skipped` : ''}{progress.recovered > 0 ? `, ${progress.recovered} using recovery` : ''}</p>}
           <button className="text-button" onClick={() => void window.pdfSearch.cancel().catch((err: unknown) => setError(message(err)))}>Cancel indexing</button>
         </section>}
       </div>}
@@ -197,12 +198,12 @@ export default function App() {
       {(error || state.error || state.libraryError) && <div className="message error" role="alert"><strong>Couldn’t complete that action.</strong><span>{error || state.error || state.libraryError}</span></div>}
       {notice && <div className="message notice" role="status">{notice}</div>}
       {!loading && fileIssues.length > 0 && <section className="index-report" aria-label="Indexing report"><details>
-        <summary>Indexing report: {skippedFiles} skipped, {recoveredFiles} indexed using recovery</summary>
-        <p>Skipped PDFs are excluded from search results. Original files are unchanged.</p>
+        <summary>Indexing report: {partialFiles > 0 ? `${partialFiles} partially indexed, ` : ''}{skippedFiles} skipped, {recoveredFiles} indexed using recovery</summary>
+        <p>Readable pages from partially indexed PDFs are searchable. Failed pages and skipped PDFs are excluded. Original files are unchanged.</p>
         <ul>{fileIssues.map((issue) => <li key={`${issue.kind}:${issue.filename}`}>
           <strong>{issue.filename}</strong>
-          <span>{issue.kind === 'skipped' ? 'Skipped — no pages indexed' : 'Indexed using recovery'}{issue.page ? ` (failed on page ${issue.page})` : ''}</span>
-          <p>{issue.kind === 'recovered' ? 'Original reading issue: ' : ''}{issue.reason}</p>
+          <span>{issue.kind === 'partial' ? `Partially indexed — ${issue.indexed_pages} searchable ${issue.indexed_pages === 1 ? 'page' : 'pages'}; ${issue.failures?.length ?? 0} ${issue.failures?.length === 1 ? 'page' : 'pages'} failed` : issue.kind === 'skipped' ? 'Skipped — no pages indexed' : 'Indexed using recovery'}{issue.kind === 'skipped' && issue.page ? ` (failed on page ${issue.page})` : ''}</span>
+          {issue.failures?.length ? <details><summary>Failed pages ({issue.failures.length})</summary><ul>{issue.failures.map((failure) => <li key={failure.page}>Page {failure.page}: {failure.reason}</li>)}</ul></details> : <p>{issue.kind === 'recovered' ? 'Original reading issue: ' : ''}{issue.reason}</p>}
         </li>)}</ul>
       </details></section>}
       {cancellable && <div className="results-heading" role="status"><span>{state.operation === 'reading' ? 'Reading page…' : 'Searching…'}</span><button className="text-button" onClick={() => void window.pdfSearch.cancel().catch((err: unknown) => setError(message(err)))}>{state.operation === 'reading' ? 'Cancel reading' : 'Cancel search'}</button></div>}

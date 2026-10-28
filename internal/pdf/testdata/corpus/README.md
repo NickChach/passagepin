@@ -17,9 +17,13 @@ It does not claim that layout reconstruction passes.
 The fixtures cover inherited resources, Flate streams, Type 1/WinAnsi fonts,
 Identity-H/CID fonts, ToUnicode ligatures and surrogate pairs, direct and
 indirect marked-content properties, nested replacements and forms, image-only
-content, inline images, inherited ToUnicode maps and late-page filter failures.
+content, inline images with following text, inherited ToUnicode maps and late-page filter failures.
 Existing generated unit fixtures cover object streams, other filters, font
-encodings, recovery, malformed syntax and cancellation.
+encodings, recovery, malformed syntax and cancellation. Additional generated unit
+fixtures cover malformed simple-font codespaces, unused empty maps, synthetic
+TrueType Unicode cmaps/CIDToGIDMap, and inline-image payloads containing fake `EI`
+terminators. Index tests retain healthy pages before and after page failures and
+check persisted reports, physical numbering, reuse, cancellation and resource errors.
 
 From the repository root:
 

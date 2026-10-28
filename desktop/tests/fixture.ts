@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-export async function createLibrary(root: string, compositeFont = false): Promise<string> {
+export async function createLibrary(root: string, compositeFont = false, failedPages: number[] = []): Promise<string> {
   await mkdir(root, { recursive: true });
   const pages = [
     'Sourdough bread needs flour, water, salt, and a starter. Let the dough rise before baking.',
@@ -22,7 +22,7 @@ export async function createLibrary(root: string, compositeFont = false): Promis
       ? `<${Array.from(text, (character) => character.charCodeAt(0).toString(16).padStart(4, '0')).join('')}>`
       : `(${escaped})`;
     const content = `BT /F1 10 Tf 40 700 Td ${encoded} Tj ET\n`;
-    object(id + 1, `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}endstream`);
+    object(id + 1, `<< /Length ${Buffer.byteLength(content)}${failedPages.includes(i + 1) ? ' /Filter /UnsupportedDecode' : ''} >>\nstream\n${content}endstream`);
   });
   if (compositeFont) {
     // Regression: real PDFs can reference a separate CID-width array and

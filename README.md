@@ -160,8 +160,11 @@ Filenames are relative to the directory indexed. Page numbers refer to the physi
 and blank pages; they may differ from printed page labels.
 
 Run `index` again with the same directory and index path to update it. SHA-256 content hashes let it reuse unchanged PDFs; changed PDFs are
-re-embedded and deleted PDFs disappear. Use `--rebuild` when changing the directory, model, or embedding pipeline. Unreadable PDFs are
-skipped as complete documents, with filenames and reasons in the saved indexing report; the remaining PDFs continue. Supported
+re-embedded and deleted PDFs disappear. Use `--rebuild` when changing the directory, model, or embedding pipeline. Page extraction failures
+are recorded individually; readable pages before and after a failed page remain searchable at their original physical page numbers.
+The report distinguishes partially indexed PDFs, skipped PDFs, and recovered cross-references. Failed pages are not counted as empty pages.
+Unreadable document structure, unsafe recovery, or failed documents with no searchable pages skip the complete PDF. Unchanged partial
+documents reuse their vectors and reports; use `--rebuild` to retry their failed pages. Supported
 cross-reference damage is recovered in memory without changing source files. Cancellation, inference failures, directory traversal failures,
 and index write failures still abort the update and leave the previous saved index intact. Avoid running multiple index writers against the
 same index path at once.
@@ -218,12 +221,17 @@ supports:
   structure, not the text of every page. A test verifies that a broken later content stream does not prevent reading an earlier page.
 - Flate, LZW (both EarlyChange modes), ASCII85, ASCIIHex and RunLength filters, PNG predictors, and TIFF prediction for 8-bit components.
 - Literal and hexadecimal strings; text-show, text-position and spacing operators; graphics transformations; Form XObjects. Image XObjects
-  are skipped without decoding their pixels.
+  are skipped without decoding their pixels. Inline images are skipped using exact unfiltered row lengths or Flate, ASCII85, ASCIIHex,
+  RunLength and JPEG filter boundaries, including inside forms; embedded `EI` bytes cannot truncate an image.
 - Marked-content `ActualText` replacements in direct dictionaries or named resource properties, including PDFDocEncoding and UTF-16BE
   text, nested sequences and Form XObjects. A replacement is emitted once; covered glyphs still advance the text position.
 - ToUnicode CMaps with character and range mappings, UTF-16 surrogate pairs and multi-character mappings; horizontal Identity-H CID fonts;
   Standard, WinAnsi and MacRoman encodings with Differences; common explicit built-in encodings in embedded Type 1 fonts; embedded
   horizontal metrics for the 14 standard PDF fonts when explicit widths are omitted.
+- Simple fonts retain one-byte character codes even when their ToUnicode codespace incorrectly declares two bytes. Unicode maps take
+  precedence over encoding fallback. Fonts selected without showing text do not need a usable Unicode map. Identity-H TrueType CID
+  fonts can recover missing mappings from embedded Unicode cmap formats 4/12 and CIDToGIDMap; ambiguous and private-use mappings are
+  excluded. The MathematicalPi-Three `H11011` glyph has a font-specific tilde mapping.
 
 Glyph names are mapped using the embedded [Adobe Glyph List](https://github.com/adobe-type-tools/agl-aglfn), with its copyright and BSD
 license retained in `internal/pdf/glyphlist.txt`. Its license notice must accompany redistributed binaries as well. The parsing and
@@ -232,9 +240,9 @@ glyph names and widths in `internal/pdf/standard-fonts.txt`; their notices and d
 and included in bundled releases.
 
 This is not a complete PDF rendering or repair engine. Unsupported features needed for extraction return an error, including encrypted
-files, inline images, vertical or custom composite-font encodings, inherited ToUnicode CMaps, and embedded TrueType/CFF fonts that lack both
-an explicit encoding and a Unicode map. Unknown glyph mappings also return errors. Some Type 1 encoding programs outside the supported
-declarative forms cannot be read. Image-only pages with ordinary image XObjects yield no text and still require OCR.
+files, inline-image filters outside the supported boundary readers, vertical or custom composite-font encodings, inherited ToUnicode CMaps,
+and fonts without a recoverable character mapping. Unknown glyph mappings also return errors. Some Type 1 encoding programs outside the
+supported declarative forms cannot be read. Image-only pages yield no text and still require OCR; inline-image support does not add OCR.
 
 Text follows content-stream order with approximate spaces inferred from glyph positions. There is no advanced column/table reconstruction,
 annotation text extraction, or interpretation of `ActualText` on structure-tree elements. Fonts still have to load using the supported
@@ -245,7 +253,7 @@ Decoded page contents are released after extraction; document structure is kept 
 
 The [PDF extraction corpus](internal/pdf/testdata/corpus/README.md) contains reproducible, self-authored MIT-licensed fixtures with expected
 page text, explicit unsupported-feature outcomes, and a tracked column-order limitation. Run `go test -v ./internal/pdf -run TestExtractionCorpus`
-to check it. Index format version 5 requires rebuilding older indexes so cached vectors use the updated extraction semantics.
+to check it. Index format version 6 requires rebuilding older indexes so cached vectors use the updated extraction semantics.
 
 ## Practical limits
 

@@ -7,9 +7,10 @@ export interface IndexProgress {
   reused: number;
   skipped: number;
   recovered: number;
+  partial: number;
 }
 
-export const emptyIndexProgress = (): IndexProgress => ({ active: new Map(), completed: 0, reused: 0, skipped: 0, recovered: 0 });
+export const emptyIndexProgress = (): IndexProgress => ({ active: new Map(), completed: 0, reused: 0, skipped: 0, recovered: 0, partial: 0 });
 
 export function updateIndexProgress(current: IndexProgress, event: Progress): IndexProgress {
   if (event.phase === 'discovering') return emptyIndexProgress();
@@ -30,6 +31,7 @@ export function updateIndexProgress(current: IndexProgress, event: Progress): In
       reused: current.reused + Number(event.phase === 'reused'),
       skipped: current.skipped + Number(event.phase === 'skipped'),
       recovered: current.recovered + Number(Boolean(event.recovered)),
+      partial: current.partial + Number(Boolean(event.partial)),
     };
   }
   return current;

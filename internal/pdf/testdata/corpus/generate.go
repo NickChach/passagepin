@@ -113,7 +113,7 @@ func main() {
 	objects = append(objects, stream("\x00", "/Type /XObject /Subtype /Image /Width 1 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8"))
 	add("image-only.pdf", objects, []string{"Image-XObject", "no-text-layer"}, page{Text: ""})
 
-	add("inline-image.pdf", basic("q BI /W 1 /H 1 /CS /G /BPC 8 ID \x00 EI Q"), []string{"inline-image", "unsupported"}, page{Error: "inline images are not supported", Feature: "inline-image"})
+	add("inline-image.pdf", basic("q BI /W 1 /H 1 /CS /G /BPC 8 ID \x00 EI Q "+text("(Text after image) Tj")), []string{"inline-image", "text-after-image"}, page{Text: "Text after image"})
 
 	objects = basic(text(`(visible) Tj`))
 	objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /ToUnicode 6 0 R >>"

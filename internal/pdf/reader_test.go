@@ -313,12 +313,16 @@ func TestMalformedAndUnsupportedPDFs(t *testing.T) {
 		want   string
 	}{
 		{"cyclic page tree", func(o []string) []string { o[1] = "<< /Type /Pages /Count 1 /Kids [2 0 R] >>"; return o }, "cyclic"},
-		{"missing Unicode", func(o []string) []string { o[3] = "<< /Type /Font /Subtype /Type0 /Encoding /Identity-H >>"; return o }, "ToUnicode"},
+		{"missing Unicode", func(o []string) []string {
+			o[3] = "<< /Type /Font /Subtype /Type0 /Encoding /Identity-H /DescendantFonts [6 0 R] >>"
+			o[4] = streamBody([]byte("BT /F1 10 Tf <0001> Tj ET"), "")
+			return append(o, "<< /Type /Font /Subtype /CIDFontType2 >>")
+		}, "no Unicode mapping"},
 		{"unknown glyph", func(o []string) []string {
 			o[3] = "<< /Type /Font /Subtype /Type1 /Encoding << /Differences [65 /unknownGlyph] >> >>"
 			return o
 		}, "no Unicode mapping"},
-		{"inline image", func(o []string) []string { o[4] = streamBody([]byte("BI /W 1 /H 1 ID x EI"), ""); return o }, "inline images"},
+		{"inline image", func(o []string) []string { o[4] = streamBody([]byte("BI /W 1 /H 1 ID x EI"), ""); return o }, "inline image colour space"},
 		{"stream length", func(o []string) []string { o[4] = "<< /Length 1 >>\nstream\nnot one byte\nendstream"; return o }, "Length"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

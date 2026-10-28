@@ -30,14 +30,15 @@ type Engine struct {
 }
 
 type Library struct {
-	Directory  string            `json:"directory"`
-	Indexed    bool              `json:"indexed"`
-	Documents  int               `json:"documents"`
-	Pages      int               `json:"pages"`
-	EmptyPages int               `json:"empty_pages"`
-	UpdatedAt  *time.Time        `json:"updated_at"`
-	Issue      string            `json:"issue,omitempty"`
-	Issues     []index.FileIssue `json:"issues,omitempty"`
+	Directory   string            `json:"directory"`
+	Indexed     bool              `json:"indexed"`
+	Documents   int               `json:"documents"`
+	Pages       int               `json:"pages"`
+	EmptyPages  int               `json:"empty_pages"`
+	FailedPages int               `json:"failed_pages"`
+	UpdatedAt   *time.Time        `json:"updated_at"`
+	Issue       string            `json:"issue,omitempty"`
+	Issues      []index.FileIssue `json:"issues,omitempty"`
 }
 
 func New(model Model, fingerprint string) *Engine {
@@ -52,11 +53,17 @@ func (e *Engine) summary() Library {
 	l := Library{Directory: e.directory, Indexed: e.idx != nil, Issue: e.issue}
 	if e.idx != nil {
 		l.Issues = e.idx.Issues
+		for _, issue := range e.idx.Issues {
+			if issue.Kind == "skipped" {
+				l.FailedPages += len(issue.Failures)
+			}
+		}
 		l.Documents = len(e.idx.Documents)
 		l.UpdatedAt = &e.idx.UpdatedAt
 		for _, doc := range e.idx.Documents {
 			l.Pages += len(doc.Pages)
-			l.EmptyPages += doc.PageCount - len(doc.Pages)
+			l.EmptyPages += doc.PageCount - len(doc.Pages) - len(doc.Failures)
+			l.FailedPages += len(doc.Failures)
 		}
 	}
 	return l
