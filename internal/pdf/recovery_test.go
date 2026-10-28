@@ -25,6 +25,31 @@ func breakStartXref(t *testing.T, path string) []byte {
 	return data
 }
 
+func TestUnresolvedCrossReferenceOnRecoveryRetryInvalidatesDocument(t *testing.T) {
+	objects := basicObjects(streamBody([]byte("BT /F1 12 Tf (healthy first page) Tj ET"), ""))
+	objects[1] = "<< /Type /Pages /Count 2 /Kids [3 0 R 6 0 R] /Resources << /Font << /F1 4 0 R >> /XObject << /Broken 999 0 R >> >> >>"
+	objects = append(objects, "<< /Type /Page /Parent 2 0 R /Contents 7 0 R >>",
+		streamBody([]byte("BT /F1 12 Tf (discard this text) Tj ET /Broken Do"), ""))
+	path := fixture(t, objects)
+	e, _ := New()
+	defer e.Close()
+	if got, err := e.PageText(context.Background(), path, 1); err != nil || got != "healthy first page" {
+		t.Fatalf("first page: %q, %v", got, err)
+	}
+	if e.RecoveryInfo() != "" {
+		t.Fatal("recovery must begin while reading the failing page")
+	}
+	got, err := e.PageText(context.Background(), path, 2)
+	var structural *DocumentError
+	var xref *xrefError
+	if got != "" || !errors.As(err, &structural) || !errors.As(err, &xref) || !strings.Contains(err.Error(), "missing object 999") {
+		t.Fatalf("lost document-level structural error: %q, %v", got, err)
+	}
+	if e.RecoveryInfo() == "" {
+		t.Fatal("fixture did not exercise the recovery retry")
+	}
+}
+
 func TestRecoverBadStartXrefWithoutChangingSource(t *testing.T) {
 	path := fixture(t, basicObjects(streamBody([]byte("BT /F1 10 Tf (recovered text) Tj ET"), "")))
 	before := breakStartXref(t, path)

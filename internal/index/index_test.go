@@ -34,7 +34,7 @@ func unit(axis int) []float32                                         { v := mak
 func (f *fakeModel) Embed(context.Context, string) ([]float32, error) { f.calls++; return unit(0), nil }
 
 func TestPreviousExtractorIndexNeedsRebuild(t *testing.T) {
-	for _, version := range []int{2, 3, 4, 5} {
+	for _, version := range []int{2, 3, 4, 5, 6} {
 		idx := &Index{Version: version, Root: t.TempDir(), Model: embedding.ModelID, Fingerprint: "weights"}
 		if err := idx.Validate(); err == nil || !strings.Contains(err.Error(), "rebuild") {
 			t.Fatalf("accepted vectors from extractor version %d: %v", version, err)

@@ -97,5 +97,9 @@ func (e *Extractor) PageText(ctx context.Context, path string, page int) (string
 		}
 	}
 	e.doc = recovered
-	return recovered.pageText(ctx, recovered.pages[page-1])
+	text, err = recovered.pageText(ctx, recovered.pages[page-1])
+	if errors.As(err, &structural) {
+		return "", &DocumentError{err}
+	}
+	return text, err
 }

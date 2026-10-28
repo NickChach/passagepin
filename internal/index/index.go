@@ -16,9 +16,9 @@ import (
 	"github.com/darkearl/semantic-search/internal/embedding"
 )
 
-// Version 6 rebuilds vectors after font/inline-image extraction fixes and stores
-// page failures separately from empty pages in partially indexed documents.
-const Version = 6
+// Version 7 rebuilds vectors after transformed-text spacing fixes and discards
+// whole documents when cross-reference errors persist after recovery retries.
+const Version = 7
 
 type Page struct {
 	Number int       `json:"number"`

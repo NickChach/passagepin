@@ -29,22 +29,28 @@ Healthy files with these supported normal-reading features still use normal
 parsing. Recovery can fix structural bookkeeping without resolving unrelated
 font, content-stream or text-extraction limitations.
 
-Index format version 5 requires rebuilding older indexes so vectors generated
-before marked-content `ActualText` support and explicit rejection of inherited
-ToUnicode maps cannot be reused. Version 4 introduced revision-chain-safe recovery.
+Index format version 7 requires rebuilding older indexes to apply corrected
+spacing for transformed text and exclude whole documents when cross-reference
+errors persist after a recovery retry. Version 6 added font/inline-image fixes
+and partial indexing; version 5 added marked-content `ActualText` support and
+explicit rejection of inherited ToUnicode maps. Version 4 introduced
+revision-chain-safe recovery.
 
-Unreadable PDFs are skipped as complete documents. Queued work for a failed PDF
-is discarded, running embedding calls are joined, and no vectors from that PDF
-are published. When a changed PDF becomes unreadable, its old vectors are
-excluded from the new index. Deleted PDFs disappear normally; skipped files are
-retried on the next update. Recovered documents can be reused by their original
-source hash, and their recovery status stays visible.
+Document-level structural failures skip the complete PDF, including unresolved
+cross-reference errors on the first recovery retry or any later read. Queued work
+for that PDF is discarded, running embedding calls are joined, and no vectors
+from it are published. Page-local extraction failures retain independently
+readable pages and produce a partial report with physical page numbers. When a
+changed PDF becomes unreadable, its old vectors are excluded from the new index.
+Deleted PDFs disappear normally; skipped files are retried on the next update.
+Recovered and partially indexed documents can be reused by their original source
+hash, with their reports preserved; use `--rebuild` to retry cached failed pages.
 
 The app saves the usable documents and file report atomically. The report
 contains filenames, outcomes and reasons, with physical page numbers when
-available. A page number identifies where reading failed; the entire PDF is
-excluded, with no pages indexed. Known unsupported features also have a stable
-`feature` identifier (for example `encryption`, `inline-image`, `stream-filter`,
+available. Skipped PDFs contribute no searchable pages; partial reports list the
+retained page count and each failed page. Known unsupported features also have a stable
+`feature` identifier (for example `encryption`, `inline-image-filter`, `stream-filter`,
 `composite-font-encoding`, `tounicode-inheritance` or `missing-unicode-map`).
 Other errors retain their parser or filesystem reason without a guessed feature.
 Blank/image-only pages return empty text and are counted separately from failed

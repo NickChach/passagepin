@@ -253,7 +253,8 @@ Decoded page contents are released after extraction; document structure is kept 
 
 The [PDF extraction corpus](internal/pdf/testdata/corpus/README.md) contains reproducible, self-authored MIT-licensed fixtures with expected
 page text, explicit unsupported-feature outcomes, and a tracked column-order limitation. Run `go test -v ./internal/pdf -run TestExtractionCorpus`
-to check it. Index format version 6 requires rebuilding older indexes so cached vectors use the updated extraction semantics.
+to check it. Index format version 7 requires rebuilding older indexes so cached vectors use corrected spacing for rotated/scaled text and
+exclude documents with unresolved cross-reference errors after recovery.
 
 ## Practical limits
 

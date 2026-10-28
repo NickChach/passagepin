@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -67,6 +68,74 @@ func TestCorpusIndexReportsAndReplacementText(t *testing.T) {
 	loaded, err := Load(path)
 	if err != nil || !reflect.DeepEqual(loaded.Issues, idx.Issues) {
 		t.Fatalf("lost feature diagnostics on reload: %v", err)
+	}
+}
+
+func TestRecoveryRetryFailureDiscardsWholeDocumentOnUpdate(t *testing.T) {
+	for _, workers := range []int{1, 2} {
+		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
+			root := t.TempDir()
+			broken := filepath.Join(root, "broken.pdf")
+			if err := testpdf.Write(broken, []string{"first page", "second page"}); err != nil {
+				t.Fatal(err)
+			}
+			if err := testpdf.Write(filepath.Join(root, "healthy.pdf"), []string{"", "healthy page"}); err != nil {
+				t.Fatal(err)
+			}
+			factory := func() (Extractor, error) { return pdf.New() }
+			model := embedFunc(func(context.Context, string) ([]float32, error) { return unit(0), nil })
+			build := func(old *Index) (*Index, Stats, error) {
+				return BuildConcurrent(context.Background(), root, "weights", true, old, factory, model, io.Discard, nil, Options{workers, workers})
+			}
+			old, stats, err := build(nil)
+			if err != nil || stats.Pages != 3 {
+				t.Fatalf("initial index: %+v, %v", stats, err)
+			}
+			data, err := os.ReadFile(broken)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Only page 2 references missing object 9. Keep byte lengths and
+			// all xref offsets intact, so the first recovery occurs on that page.
+			at := bytes.LastIndex(data, []byte("/F1 3 0 R"))
+			if at < 0 {
+				t.Fatal("missing fixture font resource")
+			}
+			copy(data[at:], []byte("/F1 9 0 R"))
+			if err := os.WriteFile(broken, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			idx, stats, err := build(old)
+			if err != nil || stats.Reused != 1 || stats.Skipped != 1 || stats.Partial != 0 || stats.Recovered != 0 || stats.Pages != 1 || stats.EmptyPages != 1 || len(idx.Documents) != 1 {
+				t.Fatalf("unsafe vectors survived update: %+v, %v", stats, err)
+			}
+			if idx.Documents[0].Filename != "healthy.pdf" || idx.Documents[0].Pages[0].Number != 2 {
+				t.Fatalf("lost healthy PDF or physical page number: %+v", idx.Documents)
+			}
+			if len(idx.Issues) != 1 || idx.Issues[0].Kind != "skipped" || idx.Issues[0].Page != 2 || !strings.Contains(idx.Issues[0].Reason, "missing object 9") {
+				t.Fatalf("wrong structural failure report: %+v", idx.Issues)
+			}
+			path := filepath.Join(t.TempDir(), "index.json")
+			if err := idx.Save(path); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := Load(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			results, err := loaded.Search(unit(0), 10, -1)
+			if err != nil || len(results) != 1 || results[0].Filename != "healthy.pdf" || results[0].Page != 2 {
+				t.Fatalf("unsafe saved search results: %+v, %v", results, err)
+			}
+			retried, stats, err := build(loaded)
+			if err != nil || stats.Skipped != 1 || stats.Partial != 0 || !reflect.DeepEqual(retried.Issues, loaded.Issues) {
+				t.Fatalf("skipped document was not retried: %+v, %v", stats, err)
+			}
+			after, err := os.ReadFile(broken)
+			if err != nil || !bytes.Equal(data, after) {
+				t.Fatalf("recovery modified source PDF: %v", err)
+			}
+		})
 	}
 }
 

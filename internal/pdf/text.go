@@ -44,13 +44,28 @@ func (o *textOutput) emit(s *textState, text string, advance float64) error {
 		return fmt.Errorf("invalid text coordinates")
 	}
 	if text != "" {
-		size := math.Abs(s.size) * math.Hypot(s.ctm[0], s.ctm[1])
 		var separator byte
 		if o.hasPosition && o.text.Len() > 0 {
-			if math.Abs(y-o.y) > max(1, size*.35) || x < o.x-max(2, size) {
-				separator = '\n'
-			} else if x-o.x > max(0.5, size*.18) {
-				separator = ' '
+			// Measure the gap in text space, including horizontal scaling.
+			// Page X/Y alone lose word boundaries under rotation, reflection,
+			// shear or scaling. Font-relative tolerances also cover PDFs using
+			// a small font size with a compensating large text matrix.
+			m := s.ctm.mul(s.tm)
+			a, b := m[0]*s.hscale, m[1]*s.hscale
+			det := a*m[3] - b*m[2]
+			if det != 0 {
+				dx, dy := x-o.x, y-o.y
+				along := (m[3]*dx - m[2]*dy) / det
+				across := (a*dy - b*dx) / det
+				if s.size < 0 {
+					along = -along
+				}
+				size := math.Abs(s.size)
+				if math.Abs(across) > size*.35 || along < -size {
+					separator = '\n'
+				} else if along > size*.18 {
+					separator = ' '
+				}
 			}
 		}
 		remaining := maxStream - o.text.Len()
