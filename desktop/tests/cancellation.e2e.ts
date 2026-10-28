@@ -17,7 +17,7 @@ test('first search and automatic and manual previews expose cancellation', async
       let stop: (() => void) | undefined;
       const library = { directory, indexed: true, documents: 1, pages: 1, empty_pages: 0, updated_at: null };
       for (const channel of ['state:get', 'library:search', 'library:page', 'worker:cancel']) ipcMain.removeHandler(channel);
-      ipcMain.handle('state:get', () => ({ ready: { protocol: 1, pid: process.pid, model_loads: 1 }, error: null, operation: null, library }));
+      ipcMain.handle('state:get', () => ({ ready: { protocol: 1, pid: process.pid, model_loads: 1 }, error: null, operation: null, library, libraryError: null, libraries: [{ id: 'research', name: 'Research', directory }], activeLibraryId: 'research' }));
       ipcMain.handle('library:search', async (event, query: string) => {
         searches++;
         if (searches === 1) {
@@ -39,8 +39,26 @@ test('first search and automatic and manual previews expose cancellation', async
     const page = await application.firstWindow();
     await page.reload();
     await expect(page.getByRole('button', { name: 'Update index', exact: true })).toBeEnabled();
+    const theme = page.getByRole('switch', { name: 'Dark mode' });
+    if (!await theme.isChecked()) await theme.click();
     await page.getByRole('textbox', { name: 'Search subject' }).fill('renewable energy');
+    await page.getByRole('textbox', { name: 'Search subject' }).hover();
+    const sidebar = page.getByRole('complementary', { name: 'PDF library' });
+    const sidebarBefore = await sidebar.screenshot({ animations: 'disabled', path: path.resolve('test-results/search-sidebar-before.png') });
+    const header = page.locator('.search-header');
+    const headerBefore = await header.boundingBox();
+    const searchButton = page.locator('.query-control > button');
+    const searchBefore = await searchButton.boundingBox();
+    const welcome = page.getByRole('region', { name: 'Getting started' });
+    const welcomeBefore = await welcome.boundingBox();
     await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Cancel search', exact: true })).toBeVisible();
+    await expect(sidebar.getByRole('button', { name: 'Update index', exact: true })).toBeDisabled();
+    await expect(sidebar.locator('.library-choice')).toBeDisabled();
+    expect((await sidebar.screenshot({ animations: 'disabled', path: path.resolve('test-results/search-sidebar-pending.png') })).equals(sidebarBefore)).toBe(true);
+    expect(await header.boundingBox()).toEqual(headerBefore);
+    expect(await searchButton.boundingBox()).toEqual(searchBefore);
+    expect(await welcome.boundingBox()).toEqual(welcomeBefore);
     await expect(page.getByRole('region', { name: 'Search results' })).toHaveCount(0);
     await page.getByRole('button', { name: 'Cancel search', exact: true }).click();
     await expect(page.getByText('Stopped. The last saved index is still available.')).toBeVisible();
@@ -51,7 +69,7 @@ test('first search and automatic and manual previews expose cancellation', async
     await page.getByRole('button', { name: 'Cancel reading', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Search', exact: true })).toBeEnabled();
 
-    await page.getByRole('listitem').click();
+    await page.getByRole('list', { name: 'Matching pages' }).getByRole('listitem').click();
     await page.getByRole('button', { name: 'Cancel reading', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Search', exact: true })).toBeEnabled();
     await expect(page.getByRole('button', { name: /^Cancel / })).toHaveCount(0);

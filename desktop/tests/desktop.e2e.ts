@@ -4,6 +4,10 @@ import path from 'node:path';
 import os from 'node:os';
 import { createLibrary } from './fixture';
 
+interface PDFOpenTestMain {
+  pdfOpenTest: { release(): void; opened: string[] };
+}
+
 test('Electron searches with one resident worker and remembers the selected theme across restarts', async () => {
   const work = await mkdtemp(path.join(os.tmpdir(), 'pdfsearch-electron-'));
   const root = path.join(work, 'Research library'); await createLibrary(root, true);
@@ -39,13 +43,63 @@ test('Electron searches with one resident worker and remembers the selected them
     workerPID = pid;
     await page.getByRole('textbox', { name: 'Search subject' }).fill('renewable energy sources');
     await page.getByRole('button', { name: 'Search', exact: true }).click();
-    await expect(page.getByRole('article', { name: 'Selected PDF page' }).getByText('Page 3', { exact: true })).toBeVisible();
+    await expect(page.getByRole('article', { name: 'Selected PDF page' }).getByText('PDF page 3', { exact: true })).toBeVisible();
     await expect(page.getByText(/Photovoltaic panels and wind turbines/)).toBeVisible();
     await page.getByRole('textbox', { name: 'Search subject' }).fill('generating electricity from sunlight');
     await page.getByRole('button', { name: 'Search', exact: true }).click();
     await expect(page.getByText('For “generating electricity from sunlight”')).toBeVisible();
     await expect(page.getByText(/Photovoltaic panels and wind turbines/)).toBeVisible();
     expect(await page.evaluate(async () => (await window.pdfSearch.getState()).ready!.pid)).toBe(pid);
+    // Hold the worker page lookup while keeping the real Open PDF IPC handler.
+    // This makes the transient operation visible long enough to check layout.
+    await application.evaluate(({ app, shell }) => {
+      const load = process.getBuiltinModule('module').createRequire(app.getAppPath() + '/build-electron/main.js');
+      const { WorkerClient } = load('./worker-client.js') as typeof import('../electron/worker-client');
+      const original = WorkerClient.prototype.request;
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => { release = resolve; });
+      WorkerClient.prototype.request = async function<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+        if (method === 'page') await held;
+        return original.call(this, method, params) as Promise<T>;
+      };
+      const opened: string[] = [];
+      shell.openPath = async (filename) => { opened.push(filename); return ''; };
+      (globalThis as unknown as PDFOpenTestMain).pdfOpenTest = { release, opened };
+    });
+    const results = page.getByRole('region', { name: 'Search results' });
+    const preview = page.getByRole('article', { name: 'Selected PDF page' });
+    const sidebar = page.getByRole('complementary', { name: 'PDF library' });
+    const sidebarBefore = await sidebar.screenshot({ animations: 'disabled' });
+    const resultsBefore = await results.boundingBox();
+    const previewBefore = await preview.boundingBox();
+    const openPDF = preview.getByRole('button', { name: /^(Open PDF|Opening…)$/ });
+    const openBefore = await openPDF.boundingBox();
+    await openPDF.click();
+    await expect.poll(() => page.evaluate(async () => (await window.pdfSearch.getState()).operation)).not.toBeNull();
+    await expect(openPDF).toBeDisabled();
+    await expect(openPDF).toHaveText('Opening…');
+    await expect(sidebar.locator('.library-choice')).toBeDisabled();
+    expect((await sidebar.screenshot({ animations: 'disabled' })).equals(sidebarBefore)).toBe(true);
+    expect(await openPDF.boundingBox()).toEqual(openBefore);
+    await expect(page.getByRole('button', { name: 'Cancel reading', exact: true })).toHaveCount(0);
+    expect(await results.boundingBox()).toEqual(resultsBefore);
+    expect(await preview.boundingBox()).toEqual(previewBefore);
+    await expect(preview.getByText(/Photovoltaic panels and wind turbines/)).toBeVisible();
+    await application.evaluate(() => (globalThis as unknown as PDFOpenTestMain).pdfOpenTest.release());
+    await expect(openPDF).toBeEnabled();
+    expect(await application.evaluate(() => (globalThis as unknown as PDFOpenTestMain).pdfOpenTest.opened)).toEqual([path.join(root, 'Energy and bread.pdf')]);
+    expect(await results.boundingBox()).toEqual(resultsBefore);
+    expect(await preview.boundingBox()).toEqual(previewBefore);
+    // Refreshing the same result must keep its already loaded text on screen.
+    await page.locator('.page-paper').evaluate((element) => {
+      const observer = new MutationObserver(() => {
+        if (element.textContent?.includes('Reading page…')) element.setAttribute('data-cleared', 'true');
+      });
+      observer.observe(element, { childList: true, subtree: true, characterData: true });
+    });
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Search', exact: true })).toBeEnabled();
+    await expect(page.locator('.page-paper')).not.toHaveAttribute('data-cleared', 'true');
     expect(await page.evaluate(() => typeof (window as unknown as Record<string, unknown>).require)).toBe('undefined');
     await mkdir(path.resolve('test-results'), { recursive: true });
     await page.screenshot({ path: path.resolve('test-results/desktop-search.png'), fullPage: true });

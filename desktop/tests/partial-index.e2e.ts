@@ -50,7 +50,7 @@ test('indexing retains readable pages and persists partial, recovered, and skipp
     await expect(page.getByRole('alert')).toHaveCount(0);
     await page.getByRole('textbox', { name: 'Search subject' }).fill('renewable energy sources');
     await page.getByRole('button', { name: 'Search', exact: true }).click();
-    await expect(page.getByRole('article', { name: 'Selected PDF page' }).getByText('Page 3', { exact: true })).toBeVisible();
+    await expect(page.getByRole('article', { name: 'Selected PDF page' }).getByText('PDF page 3', { exact: true })).toBeVisible();
     expect(await readFile(recovered)).toEqual(damaged);
     await app.close();
     app = await launch();

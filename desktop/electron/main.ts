@@ -154,16 +154,16 @@ function handlers(): void {
     if (typeof minScore !== 'number' || !Number.isFinite(minScore) || minScore < -1 || minScore > 1) throw new Error('Invalid similarity threshold.');
     return operation('searching', () => { requireLibrary(); return client!.request('search', { query: subject, top: limit, min_score: minScore }); });
   });
-  const getPage = (filename: unknown, page: unknown) => {
+  const getPage = (filename: unknown, page: unknown, name: 'reading' | 'opening-pdf' = 'reading') => {
     const file = text(filename, 'filename', 4096); const number = integer(page, 'page number', 1_000_000);
-    return operation('reading', () => { requireLibrary(); return client!.request<PageText & { path: string }>('page', { filename: file, page: number }); });
+    return operation(name, () => { requireLibrary(); return client!.request<PageText & { path: string }>('page', { filename: file, page: number }); });
   };
   ipcMain.handle('library:page', async (event, filename: unknown, page: unknown) => {
     trusted(event); const result = await getPage(filename, page);
     return { filename: result.filename, page: result.page, text: result.text };
   });
   ipcMain.handle('library:open-pdf', async (event, filename: unknown, page: unknown) => {
-    trusted(event); const result = await getPage(filename, page);
+    trusted(event); const result = await getPage(filename, page, 'opening-pdf');
     const error = await shell.openPath(result.path); if (error) throw new Error(error);
   });
   ipcMain.handle('worker:cancel', async (event) => { trusted(event); await client?.cancel(); });

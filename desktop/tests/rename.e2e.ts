@@ -47,7 +47,7 @@ test('PassagePin restores the previous PDF Search library, index and theme', asy
     // Search the saved index directly, without invoking indexing in the new app.
     await page.getByRole('textbox', { name: 'Search subject' }).fill('renewable energy sources');
     await page.getByRole('button', { name: 'Search', exact: true }).click();
-    await expect(page.getByRole('article', { name: 'Selected PDF page' }).getByText('Page 3', { exact: true })).toBeVisible();
+    await expect(page.getByRole('article', { name: 'Selected PDF page' }).getByText('PDF page 3', { exact: true })).toBeVisible();
     await expect(page.getByText(/Photovoltaic panels and wind turbines/)).toBeVisible();
   } finally {
     if (application) await application.close();
