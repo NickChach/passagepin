@@ -157,7 +157,7 @@ progress { display: block; width: 100%; height: 5px; margin: 12px 0; accent-colo
 .status-dot.ready { background: var(--positive-dot); }
 .status-dot.failed { background: var(--error-border); }
 .status-dot.starting { animation: breathe 1.8s infinite; }
-.sidebar-footer > p { display: flex; align-items: flex-start; gap: 6px; color: var(--subtle); margin-top: 16px; font-size: 12px; line-height: 1.5; }
+.sidebar-footer > p { display: flex; align-items: center; gap: 6px; color: var(--subtle); margin-top: 16px; font-size: 12px; line-height: 1.5; }
 .workspace { flex: 1; min-width: 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; background: var(--surface); }
 .workspace > * { flex-shrink: 0; }
 .search-header { padding: 43px 40px 26px; border-bottom: 1px solid var(--border-soft); }
