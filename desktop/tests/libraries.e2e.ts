@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import { mkdtemp, mkdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { createLibrary } from './fixture';
+import { createLibrary, readState } from './fixture';
 
 test('libraries retain names and independent indexes across switches, restarts and removal', async () => {
   const work = await mkdtemp(path.join(os.tmpdir(), 'passagepin-multiple-'));
@@ -27,7 +27,7 @@ test('libraries retain names and independent indexes across switches, restarts a
     await page.getByRole('textbox', { name: 'Library name', exact: true }).fill('Study shelf');
     await page.getByRole('button', { name: 'Save name', exact: true }).click();
     await expect(page.getByRole('list', { name: 'Saved libraries' }).getByText('Study shelf', { exact: true })).toBeVisible();
-    const original = await page.evaluate(() => window.pdfSearch.getState());
+    const original = await readState(page);
     const firstIndex = path.join(profile, 'indexes', original.activeLibraryId! + '.json');
     const firstModified = (await stat(firstIndex)).mtimeMs;
     const pid = original.ready!.pid;
@@ -35,12 +35,12 @@ test('libraries retain names and independent indexes across switches, restarts a
     const alias = path.join(work, 'Research alias'); await symlink(first, alias);
     await choose(alias);
     await expect(page.getByRole('list', { name: 'Saved libraries' }).locator('li')).toHaveCount(1);
-    expect((await page.evaluate(() => window.pdfSearch.getState())).libraries[0].name).toBe('Study shelf');
+    expect((await readState(page)).libraries[0].name).toBe('Study shelf');
     await choose(second);
     await expect(page.getByRole('button', { name: 'Index folder', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: 'Index folder', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Update index', exact: true })).toBeEnabled();
-    const secondState = await page.evaluate(() => window.pdfSearch.getState());
+    const secondState = await readState(page);
     const secondId = secondState.activeLibraryId!;
     const secondIndex = path.join(profile, 'indexes', secondId + '.json');
     const secondModified = (await stat(secondIndex)).mtimeMs;
@@ -56,26 +56,37 @@ test('libraries retain names and independent indexes across switches, restarts a
     await expect(page.getByRole('button', { name: 'Update index', exact: true })).toBeEnabled();
     await page.getByRole('button', { name: 'Search', exact: true }).click();
     await expect(page.locator('.result-info strong').first()).toHaveText('Research.pdf');
-    expect((await page.evaluate(() => window.pdfSearch.getState())).ready).toEqual(original.ready);
+    await page.getByRole('list', { name: 'Saved libraries' }).getByText('Study shelf', { exact: true }).click();
+    await expect(page.getByRole('region', { name: 'Search results' })).toHaveCount(0);
+    await expect(page.getByRole('article', { name: 'Selected PDF page' })).toHaveCount(0);
+    expect((await readState(page)).ready).toEqual(original.ready);
     expect((await stat(firstIndex)).mtimeMs).toBe(firstModified);
     expect((await stat(secondIndex)).mtimeMs).toBe(secondModified);
     // Invalid and concurrent renderer requests must not bypass main-process guards.
     const guarded = await page.evaluate(async (id) => {
-      const opening = window.pdfSearch.selectLibrary(id);
+      const unwrap = <T>(reply: import('../electron/ipc-result').IPCResult<T>): T => {
+        if (!reply.ok) throw new Error(reply.error.message);
+        return reply.value;
+      };
+      const opening = window.pdfSearch.selectLibrary(id).then(unwrap);
       const attempts = await Promise.allSettled([
-        window.pdfSearch.renameLibrary(id, 'Racing rename'), window.pdfSearch.removeLibrary(id), window.pdfSearch.selectLibrary(id),
+        window.pdfSearch.renameLibrary(id, 'Racing rename').then(unwrap), window.pdfSearch.removeLibrary(id).then(unwrap), window.pdfSearch.selectLibrary(id).then(unwrap),
       ]);
       await opening;
       return attempts.map((result) => result.status === 'rejected' ? String(result.reason) : 'unexpected success');
     }, secondId);
     expect(guarded.every((result) => result.includes('current operation'))).toBe(true);
     const invalid = await page.evaluate(async () => {
-      try { await window.pdfSearch.removeLibrary('../outside'); return 'unexpected success'; } catch (error) { return String(error); }
+      const unwrap = <T>(reply: import('../electron/ipc-result').IPCResult<T>): T => {
+        if (!reply.ok) throw new Error(reply.error.message);
+        return reply.value;
+      };
+      try { await window.pdfSearch.removeLibrary('../outside').then(unwrap); return 'unexpected success'; } catch (error) { return String(error); }
     });
     expect(invalid).toContain('no longer saved');
     await application.close(); application = await launch(); page = await application.firstWindow();
     await expect(page.getByRole('button', { name: 'Update index', exact: true })).toBeEnabled({ timeout: 60_000 });
-    const restored = await page.evaluate(() => window.pdfSearch.getState());
+    const restored = await readState(page);
     expect(restored.activeLibraryId).toBe(secondId); expect(restored.libraries.map((entry) => entry.name)).toEqual(['Study shelf', 'Cooking']);
     expect(restored.ready!.model_loads).toBe(1);
     expect(pid).toBeGreaterThan(0);
@@ -85,7 +96,7 @@ test('libraries retain names and independent indexes across switches, restarts a
     await page.getByRole('button', { name: 'Remove library Study shelf', exact: true }).click();
     await page.getByRole('button', { name: 'Remove library', exact: true }).click();
     await expect(page.getByRole('list', { name: 'Saved libraries' }).locator('li')).toHaveCount(1);
-    expect((await page.evaluate(() => window.pdfSearch.getState())).activeLibraryId).toBe(secondId);
+    expect((await readState(page)).activeLibraryId).toBe(secondId);
     await expect(stat(firstIndex)).rejects.toMatchObject({ code: 'ENOENT' });
     await stat(path.join(first, 'Research.pdf'));
     await page.getByRole('button', { name: 'Remove library Cooking', exact: true }).click();
@@ -95,13 +106,17 @@ test('libraries retain names and independent indexes across switches, restarts a
     await expect(stat(secondIndex)).rejects.toMatchObject({ code: 'ENOENT' });
     await stat(path.join(second, 'Recipes.pdf'));
     const removed = await page.evaluate(async () => {
-      const results = await Promise.allSettled([window.pdfSearch.index(false), window.pdfSearch.search('energy', 10, 0), window.pdfSearch.page('Recipes.pdf', 3)]);
+      const unwrap = <T>(reply: import('../electron/ipc-result').IPCResult<T>): T => {
+        if (!reply.ok) throw new Error(reply.error.message);
+        return reply.value;
+      };
+      const results = await Promise.allSettled([window.pdfSearch.index(false).then(unwrap), window.pdfSearch.search('energy', 10, 0).then(unwrap), window.pdfSearch.page('Recipes.pdf', 3).then(unwrap)]);
       return results.map((result) => result.status === 'rejected' ? String(result.reason) : 'unexpected success');
     });
     expect(removed.every((result) => result.includes('available library') || result.includes('current operation'))).toBe(true);
     await application.close(); application = await launch(); page = await application.firstWindow();
     await expect(page.getByText('Search engine ready')).toBeVisible({ timeout: 60_000 });
-    expect((await page.evaluate(() => window.pdfSearch.getState())).libraries).toEqual([]);
+    expect((await readState(page)).libraries).toEqual([]);
     expect(errors).toEqual([]);
   } finally { await application.close(); await rm(work, { recursive: true, force: true }); }
 });
@@ -116,7 +131,7 @@ test('legacy selection migrates and unavailable libraries survive failed opens a
   try {
     let page = await application.firstWindow();
     await expect(page.getByRole('button', { name: 'Index folder', exact: true })).toBeEnabled({ timeout: 60_000 });
-    let state = await page.evaluate(() => window.pdfSearch.getState());
+    let state = await readState(page);
     const id = state.activeLibraryId!;
     expect(state.libraries[0].name).toBe('Archive');
     expect(await readFile(path.join(profile, 'library.json'), 'utf8')).toBe(legacy);
@@ -137,7 +152,7 @@ test('legacy selection migrates and unavailable libraries survive failed opens a
     await rm(filename); await mkdir(filename);
     await page.getByRole('list', { name: 'Saved libraries' }).getByText('Other', { exact: true }).click();
     await expect(page.getByRole('alert')).toBeVisible();
-    state = await page.evaluate(() => window.pdfSearch.getState());
+    state = await readState(page);
     expect(state.activeLibraryId).toBe(id); expect(state.library?.directory).toBe(directory);
     await rm(filename, { recursive: true }); await writeFile(filename, saved);
     await page.getByRole('button', { name: 'Search', exact: true }).click();
@@ -145,14 +160,14 @@ test('legacy selection migrates and unavailable libraries survive failed opens a
     await rename(other, other + '-offline');
     await page.getByRole('list', { name: 'Saved libraries' }).getByText('Other', { exact: true }).click();
     await expect(page.getByRole('alert')).toBeVisible();
-    state = await page.evaluate(() => window.pdfSearch.getState());
+    state = await readState(page);
     expect(state.activeLibraryId).toBe(id); expect(state.library?.directory).toBe(directory);
     await expect(page.getByText(/Photovoltaic panels and wind turbines/)).toBeVisible();
     await application.close(); await rename(directory, directory + '-offline');
     application = await launch(); page = await application.firstWindow();
     await expect(page.getByText('Search engine ready')).toBeVisible({ timeout: 60_000 });
     await expect(page.getByRole('alert')).toContainText('Reconnect its folder');
-    state = await page.evaluate(() => window.pdfSearch.getState());
+    state = await readState(page);
     expect(state.library).toBeNull(); expect(state.activeLibraryId).toBe(id); expect(state.libraries).toHaveLength(2);
     await rename(directory + '-offline', directory);
     await page.getByRole('list', { name: 'Saved libraries' }).getByText('Archive', { exact: true }).click();

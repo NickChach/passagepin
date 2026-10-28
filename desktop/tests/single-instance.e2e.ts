@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { createLibrary } from './fixture';
+import { createLibrary, readState } from './fixture';
 
 interface InstanceTestMain { secondLaunches: number; focusRequests: number }
 
@@ -20,7 +20,7 @@ test('repeat launches focus one window and preserve libraries, names and selecti
   try {
     let page = await application.firstWindow();
     await expect(page.getByText('Search engine ready')).toBeVisible({ timeout: 60_000 });
-    const ready = (await page.evaluate(() => window.pdfSearch.getState())).ready;
+    const ready = (await readState(page)).ready;
     await application.evaluate(({ app, BrowserWindow }) => {
       const counters = globalThis as unknown as InstanceTestMain;
       counters.secondLaunches = 0; counters.focusRequests = 0;
@@ -45,7 +45,7 @@ test('repeat launches focus one window and preserve libraries, names and selecti
         return { count: windows.length, visible: windows[0]?.isVisible(), minimized: windows[0]?.isMinimized() };
       })).toEqual({ count: 1, visible: true, minimized: false });
       await expect.poll(() => application.evaluate(() => (globalThis as unknown as InstanceTestMain).focusRequests)).toBeGreaterThanOrEqual(expected);
-      expect((await page.evaluate(() => window.pdfSearch.getState())).ready).toEqual(ready);
+      expect((await readState(page)).ready).toEqual(ready);
     };
     // Exercise another launch before any library has been added, which used to
     // leave a second process holding an empty, stale registry.
@@ -62,7 +62,7 @@ test('repeat launches focus one window and preserve libraries, names and selecti
     await page.getByRole('list', { name: 'Saved libraries' }).getByText('Study shelf', { exact: true }).click();
     await page.getByRole('button', { name: 'Index folder', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Update index', exact: true })).toBeEnabled();
-    const original = await page.evaluate(() => window.pdfSearch.getState());
+    const original = await readState(page);
     const profile = await application.evaluate(({ app }) => app.getPath('userData'));
     const registry = path.join(profile, 'libraries.json');
     const saved = await readFile(registry, 'utf8');
@@ -71,12 +71,12 @@ test('repeat launches focus one window and preserve libraries, names and selecti
     await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].minimize());
     await expect.poll(() => application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isMinimized())).toBe(true);
     await repeatLaunch(2);
-    expect(await page.evaluate(() => window.pdfSearch.getState())).toEqual(original);
+    expect(await readState(page)).toEqual(original);
     expect(await readFile(registry, 'utf8')).toBe(saved);
     expect(await readFile(index, 'utf8')).toBe(savedIndex);
     await application.close(); application = await launch(); page = await application.firstWindow();
     await expect(page.getByRole('button', { name: 'Update index', exact: true })).toBeEnabled({ timeout: 60_000 });
-    const restored = await page.evaluate(() => window.pdfSearch.getState());
+    const restored = await readState(page);
     expect(restored.libraries).toEqual(original.libraries);
     expect(restored.activeLibraryId).toBe(original.activeLibraryId);
     expect(restored.library).toEqual(original.library);

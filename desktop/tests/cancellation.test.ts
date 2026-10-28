@@ -42,7 +42,7 @@ test('page cancellation keeps targeting the page until its final reply', async (
   await client.cancel();
   assert.equal(requests.length, 3, 'completed requests must not remain cancellable');
 
-  const nextPage = client.request<{ text: string }>('page', { filename: 'example.pdf', page: 2 });
+  const nextPage = client.request('page', { filename: 'example.pdf', page: 2 });
   await Promise.resolve();
   const nextTarget = requests[3].id;
   assert.notEqual(nextTarget, target);

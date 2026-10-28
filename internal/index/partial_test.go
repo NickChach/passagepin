@@ -188,6 +188,10 @@ func TestPartialIndexRetainsHealthyPagesAndPersistsReports(t *testing.T) {
 	if err != nil || len(loaded.Issues) != 3 || loaded.Documents[2].Recovery == "" || !reflect.DeepEqual(idx.Documents, loaded.Documents) {
 		t.Fatalf("report did not survive reload: %v", err)
 	}
+	wantCounts := Counts{Documents: 3, Pages: 5, EmptyPages: 3, FailedPages: 1, Recovered: 1, Partial: 1, Skipped: 1}
+	if idx.Counts() != wantCounts || loaded.Counts() != wantCounts {
+		t.Fatalf("snapshot counts changed on reload: build=%+v loaded=%+v", idx.Counts(), loaded.Counts())
+	}
 	if err := os.WriteFile(filepath.Join(root, "good.pdf"), []byte("now unreadable"), 0600); err != nil {
 		t.Fatal(err)
 	}

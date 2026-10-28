@@ -263,110 +263,12 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 		readers.Add(1)
 		go func(extractor Extractor) {
 			defer readers.Done()
+			worker := documentWorker{ctx: ctx, root: root, cache: cache, extractor: extractor, hash: hash, extraction: &extraction, pages: pages, documents: documents, notify: notify, fail: fail, skip: skip}
 			for path := range files {
 				if ctx.Err() != nil {
 					return
 				}
-				rel, err := filepath.Rel(root, path)
-				if err != nil {
-					fail(err)
-					return
-				}
-				digest, err := hash(path)
-				if err != nil {
-					skip(rel, 0, err)
-					continue
-				}
-				if doc, ok := cache[rel]; ok && doc.SHA256 == digest {
-					notify(Progress{Phase: "reused", Filename: rel, Pages: doc.PageCount, Recovered: doc.Recovery != "", Partial: len(doc.Failures) > 0})
-					select {
-					case documents <- documentResult{doc: doc, reused: true}:
-					case <-ctx.Done():
-						return
-					}
-					continue
-				}
-				start := time.Now()
-				count, err := extractor.PageCount(ctx, path)
-				extraction.Add(int64(time.Since(start)))
-				if err != nil {
-					skip(rel, 0, err)
-					continue
-				}
-				doc := Document{Filename: rel, SHA256: digest, PageCount: count, Pages: make([]Page, count)}
-				var pending sync.WaitGroup
-				var discard atomic.Bool
-				var readErr error
-				failedPage := 0
-				for page := 1; page <= count && ctx.Err() == nil; page++ {
-					notify(Progress{Phase: "embedding", Filename: rel, Page: page, Pages: count})
-					start := time.Now()
-					text, err := extractor.PageText(ctx, path, page)
-					extraction.Add(int64(time.Since(start)))
-					if err != nil {
-						if ctx.Err() != nil || fatalReadError(err) {
-							fail(err)
-							break
-						}
-						var structural *pdf.DocumentError
-						if errors.As(err, &structural) {
-							readErr, failedPage = err, page
-							discard.Store(true)
-							break
-						}
-						doc.Failures = append(doc.Failures, pageFailure(page, err))
-						continue
-					}
-					if strings.TrimSpace(text) == "" {
-						continue
-					}
-					pending.Add(1)
-					select {
-					case pages <- pageJob{text: text, page: &doc.Pages[page-1], number: page, filename: rel, done: &pending, discard: &discard}:
-					case <-ctx.Done():
-						pending.Done()
-					}
-				}
-				// Includes inference before rehashing: source edits during embedding
-				// must not be committed under the original digest.
-				pending.Wait()
-				if ctx.Err() != nil {
-					return
-				}
-				if readErr != nil {
-					if reason := recoveryInfo(extractor); reason != "" {
-						readErr = fmt.Errorf("%w (cross-reference recovery succeeded; original issue: %s)", readErr, reason)
-					}
-					skip(rel, failedPage, readErr)
-					continue
-				}
-				after, err := hash(path)
-				if err != nil {
-					skip(rel, 0, err)
-					continue
-				}
-				if after != digest {
-					skip(rel, 0, fmt.Errorf("source changed during indexing; retry this PDF"))
-					continue
-				}
-				kept := doc.Pages[:0]
-				for _, page := range doc.Pages {
-					if page.Number != 0 {
-						kept = append(kept, page)
-					}
-				}
-				doc.Pages = kept
-				doc.Recovery = recoveryInfo(extractor)
-				if len(doc.Pages) == 0 && len(doc.Failures) > 0 {
-					skip(rel, doc.Failures[0].Page, fmt.Errorf("%s", doc.Failures[0].Reason), doc.Failures...)
-					continue
-				}
-				notify(Progress{Phase: "completed", Filename: rel, Page: count, Pages: count, Recovered: doc.Recovery != "", Partial: len(doc.Failures) > 0})
-				select {
-				case documents <- documentResult{doc: doc}:
-				case <-ctx.Done():
-					return
-				}
+				worker.process(path)
 			}
 		}(extractor)
 	}
@@ -404,15 +306,11 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 	}()
 	for result := range documents {
 		if result.skipped != nil {
-			stats.Skipped++
-			stats.FailedPages += len(result.skipped.Failures)
 			idx.Issues = append(idx.Issues, *result.skipped)
 			continue
 		}
 		idx.Documents = append(idx.Documents, result.doc)
 		if len(result.doc.Failures) > 0 {
-			stats.Partial++
-			stats.FailedPages += len(result.doc.Failures)
 			idx.Issues = append(idx.Issues, FileIssue{Filename: result.doc.Filename, Kind: "partial", Reason: fmt.Sprintf("%d pages failed extraction", len(result.doc.Failures)), Page: result.doc.Failures[0].Page, IndexedPages: len(result.doc.Pages), Failures: result.doc.Failures})
 			if progress != nil {
 				outputMu.Lock()
@@ -421,7 +319,6 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 			}
 		}
 		if result.doc.Recovery != "" {
-			stats.Recovered++
 			idx.Issues = append(idx.Issues, FileIssue{Filename: result.doc.Filename, Kind: "recovered", Reason: issueReason(fmt.Errorf("%s", result.doc.Recovery))})
 		}
 		if result.reused {
@@ -429,9 +326,10 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 		} else {
 			stats.Indexed++
 		}
-		stats.Pages += len(result.doc.Pages)
-		stats.EmptyPages += result.doc.PageCount - len(result.doc.Pages) - len(result.doc.Failures)
 	}
+	counts := idx.Counts()
+	stats.Pages, stats.EmptyPages, stats.FailedPages = counts.Pages, counts.EmptyPages, counts.FailedPages
+	stats.Partial, stats.Recovered, stats.Skipped = counts.Partial, counts.Recovered, counts.Skipped
 	stats.Timings = Timings{Hashing: time.Duration(hashing.Load()), Extraction: time.Duration(extraction.Load()), Embedding: time.Duration(embeddings.Load()), Total: time.Since(started)}
 	if firstErr != nil {
 		return nil, stats, firstErr

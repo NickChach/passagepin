@@ -1,7 +1,8 @@
 import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { EventEmitter } from 'node:events';
-import type { Progress, WorkerReady } from './types';
+import { parseProgress } from './worker-protocol';
+import type { WorkerReady, WorkerMethods } from './types';
 
 interface Reply { id?: string; event?: string; data?: unknown; result?: unknown; error?: { code: string; message: string } }
 interface Pending { resolve(value: unknown): void; reject(error: Error): void }
@@ -43,7 +44,7 @@ export class WorkerClient extends EventEmitter {
             if (initialized) throw new Error('Search engine initialized twice.');
             initialized = true; clearTimeout(timer); this.emit('ready', ready); resolve(ready); return;
           }
-          if (message.event === 'progress') { this.emit('progress', message.data as Progress); return; }
+          if (message.event === 'progress') { this.emit('progress', parseProgress(message.data)); return; }
           if (!message.id) return;
           const pending = this.pending.get(message.id);
           if (!pending) return;
@@ -66,13 +67,14 @@ export class WorkerClient extends EventEmitter {
     return this.readyPromise;
   }
 
-  async request<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
+  async request<M extends keyof WorkerMethods>(method: M, ...args: {} extends WorkerMethods[M]['params'] ? [params?: WorkerMethods[M]['params']] : [params: WorkerMethods[M]['params']]): Promise<WorkerMethods[M]['result']> {
     await this.start();
     const child = this.child;
     if (!child || child.stdin.destroyed) throw new Error('The search engine is not running. Restart it to continue.');
     const id = String(++this.sequence);
-    return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: (value) => resolve(value as T), reject });
+    const params = args[0] ?? {};
+    return new Promise<WorkerMethods[M]['result']>((resolve, reject) => {
+      this.pending.set(id, { resolve: (value) => resolve(value as WorkerMethods[M]['result']), reject });
       if (method === 'index' || method === 'search' || method === 'page') this.activeID = id;
       child.stdin.write(JSON.stringify({ id, method, params }) + '\n', (error) => {
         if (error) { this.pending.delete(id); if (this.activeID === id) this.activeID = null; reject(error); }

@@ -1,9 +1,10 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
 import { mkdir, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
+import { ipcResult } from './ipc-result';
 import { WorkerClient } from './worker-client';
 import { LibraryStore, libraryID } from './library-store';
-import type { Library, PageText, SavedLibrary, State, WorkerEvent } from './types';
+import type { Library, SavedLibrary, State, WorkerEvent } from './types';
 
 let window: BrowserWindow | null = null;
 let client: WorkerClient | null = null;
@@ -65,7 +66,7 @@ async function loadLibrary(entry: SavedLibrary): Promise<Library> {
   if (libraryID(canonical) !== entry.id) throw new Error('This folder now points to a different location. Add it as a new library.');
   const indexDir = path.join(app.getPath('userData'), 'indexes');
   await mkdir(indexDir, { recursive: true });
-  return client.request<Library>('open', { directory: canonical, index_path: path.join(indexDir, entry.id + '.json') });
+  return client.request('open', { directory: canonical, index_path: path.join(indexDir, entry.id + '.json') });
 }
 async function openLibrary(entry: SavedLibrary): Promise<Library> {
   const previous = state.activeLibraryId && state.library ? libraries.get(state.activeLibraryId) : null;
@@ -109,8 +110,10 @@ async function startWorker(): Promise<void> {
   }
 }
 function handlers(): void {
-  ipcMain.handle('state:get', (event) => { trusted(event); return state; });
-  ipcMain.handle('library:choose', async (event) => {
+  const handle = (channel: string, listener: Parameters<typeof ipcMain.handle>[1]) =>
+    ipcMain.handle(channel, (event, ...args) => ipcResult(() => listener(event, ...args)));
+  handle('state:get', (event) => { trusted(event); return state; });
+  handle('library:choose', async (event) => {
     trusted(event);
     return operation('opening', async () => {
       if (!window) throw new Error('Application window is unavailable.');
@@ -121,15 +124,15 @@ function handlers(): void {
       return openLibrary(libraries.entry(await realpath(directory)));
     });
   });
-  ipcMain.handle('library:select', async (event, id: unknown) => {
+  handle('library:select', async (event, id: unknown) => {
     trusted(event); const key = text(id, 'library ID', 64);
     return operation('opening', () => openLibrary(libraries.get(key)));
   });
-  ipcMain.handle('library:rename', async (event, id: unknown, name: unknown) => {
+  handle('library:rename', async (event, id: unknown, name: unknown) => {
     trusted(event); const key = text(id, 'library ID', 64);
     return operation('renaming', async () => { await libraries.rename(key, name); publishLibraries(); return { ...state, operation: null }; });
   });
-  ipcMain.handle('library:remove', async (event, id: unknown) => {
+  handle('library:remove', async (event, id: unknown) => {
     trusted(event); const key = text(id, 'library ID', 64);
     return operation('removing', async () => {
       const wasActive = state.activeLibraryId === key;
@@ -140,34 +143,34 @@ function handlers(): void {
       return { ...state, operation: null };
     });
   });
-  ipcMain.handle('library:index', async (event, rebuild: unknown) => {
+  handle('library:index', async (event, rebuild: unknown) => {
     trusted(event); if (typeof rebuild !== 'boolean') throw new Error('Invalid rebuild option.');
     return operation('indexing', async () => {
       requireLibrary();
-      const result = await client!.request<{ library: Library; stats: unknown }>('index', { rebuild });
+      const result = await client!.request('index', { rebuild });
       state.library = result.library; publish({ kind: 'library', data: result.library });
       return result;
     });
   });
-  ipcMain.handle('library:search', async (event, query: unknown, top: unknown, minScore: unknown) => {
+  handle('library:search', async (event, query: unknown, top: unknown, minScore: unknown) => {
     trusted(event); const subject = text(query, 'subject'); const limit = integer(top, 'result limit', 500);
     if (typeof minScore !== 'number' || !Number.isFinite(minScore) || minScore < -1 || minScore > 1) throw new Error('Invalid similarity threshold.');
     return operation('searching', () => { requireLibrary(); return client!.request('search', { query: subject, top: limit, min_score: minScore }); });
   });
   const getPage = (filename: unknown, page: unknown, name: 'reading' | 'opening-pdf' = 'reading') => {
     const file = text(filename, 'filename', 4096); const number = integer(page, 'page number', 1_000_000);
-    return operation(name, () => { requireLibrary(); return client!.request<PageText & { path: string }>('page', { filename: file, page: number }); });
+    return operation(name, () => { requireLibrary(); return client!.request('page', { filename: file, page: number }); });
   };
-  ipcMain.handle('library:page', async (event, filename: unknown, page: unknown) => {
+  handle('library:page', async (event, filename: unknown, page: unknown) => {
     trusted(event); const result = await getPage(filename, page);
     return { filename: result.filename, page: result.page, text: result.text };
   });
-  ipcMain.handle('library:open-pdf', async (event, filename: unknown, page: unknown) => {
+  handle('library:open-pdf', async (event, filename: unknown, page: unknown) => {
     trusted(event); const result = await getPage(filename, page, 'opening-pdf');
     const error = await shell.openPath(result.path); if (error) throw new Error(error);
   });
-  ipcMain.handle('worker:cancel', async (event) => { trusted(event); await client?.cancel(); });
-  ipcMain.handle('worker:restart', async (event) => {
+  handle('worker:cancel', async (event) => { trusted(event); await client?.cancel(); });
+  handle('worker:restart', async (event) => {
     trusted(event); if (state.operation) throw new Error('Cancel the current operation before restarting.');
     await client?.stop(); startup = startWorker(); await startup; return state;
   });

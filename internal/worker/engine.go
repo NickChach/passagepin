@@ -53,18 +53,10 @@ func (e *Engine) summary() Library {
 	l := Library{Directory: e.directory, Indexed: e.idx != nil, Issue: e.issue}
 	if e.idx != nil {
 		l.Issues = e.idx.Issues
-		for _, issue := range e.idx.Issues {
-			if issue.Kind == "skipped" {
-				l.FailedPages += len(issue.Failures)
-			}
-		}
-		l.Documents = len(e.idx.Documents)
+		counts := e.idx.Counts()
+		l.Documents, l.Pages = counts.Documents, counts.Pages
+		l.EmptyPages, l.FailedPages = counts.EmptyPages, counts.FailedPages
 		l.UpdatedAt = &e.idx.UpdatedAt
-		for _, doc := range e.idx.Documents {
-			l.Pages += len(doc.Pages)
-			l.EmptyPages += doc.PageCount - len(doc.Pages) - len(doc.Failures)
-			l.FailedPages += len(doc.Failures)
-		}
 	}
 	return l
 }

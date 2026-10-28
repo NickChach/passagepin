@@ -1,3 +1,5 @@
+import type { Page } from '@playwright/test';
+import type { DesktopAPI, State } from '../electron/types';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 export async function createLibrary(root: string, compositeFont = false, failedPages: number[] = []): Promise<string> {
@@ -37,4 +39,17 @@ export async function createLibrary(root: string, compositeFont = false, failedP
   for (const offset of offsets.slice(1)) pdf += `${String(offset).padStart(10, '0')} 00000 n \n`;
   pdf += `trailer\n<< /Size ${offsets.length} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   const file = path.join(root, 'Energy and bread.pdf'); await writeFile(file, pdf); return file;
+}
+
+export async function readState(page: Page): Promise<State> {
+  return page.evaluate(async () => {
+    const reply = await window.pdfSearch.getState();
+    if (!reply.ok) throw new Error(reply.error.message);
+    return reply.value;
+  });
+}
+
+// Historical packaged builds exposed raw results before the IPC envelope.
+export async function readLegacyState(page: Page): Promise<State> {
+  return page.evaluate(() => (window.pdfSearch as unknown as DesktopAPI).getState());
 }

@@ -110,3 +110,9 @@ should enforce a shutdown timeout in case a native call becomes stuck.
 Other error codes are `invalid_request`, `busy`, and `operation_failed`.
 Malformed JSON is reported without terminating the worker; input lines exceeding
 1 MiB terminate the session. The protocol is local stdio IPC, not a network API.
+
+The desktop IPC bridge wraps handler replies in `{ok: true, value}` or
+`{ok: false, error: {code, message}}`. This envelope crosses both IPC and
+contextBridge as data. The renderer unwraps it locally, so cancellation uses the
+`cancelled` code rather than diagnostic text or filenames. This desktop envelope
+does not change the worker's JSON-lines protocol above.

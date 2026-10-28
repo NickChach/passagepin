@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import { mkdtemp, rm, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { createLibrary } from './fixture';
+import { createLibrary, readState } from './fixture';
 
 interface PDFOpenTestMain {
   pdfOpenTest: { release(): void; opened: string[] };
@@ -39,7 +39,7 @@ test('Electron searches with one resident worker and remembers the selected them
     await expect(page.getByText('Research library', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Index folder', exact: true }).click();
     await expect(page.getByText('2 searchable pages are ready.')).toBeVisible({ timeout: 60_000 });
-    const pid = await page.evaluate(async () => (await window.pdfSearch.getState()).ready!.pid);
+    const pid = (await readState(page)).ready!.pid;
     workerPID = pid;
     await page.getByRole('textbox', { name: 'Search subject' }).fill('renewable energy sources');
     await page.getByRole('button', { name: 'Search', exact: true }).click();
@@ -49,7 +49,7 @@ test('Electron searches with one resident worker and remembers the selected them
     await page.getByRole('button', { name: 'Search', exact: true }).click();
     await expect(page.getByText('For “generating electricity from sunlight”')).toBeVisible();
     await expect(page.getByText(/Photovoltaic panels and wind turbines/)).toBeVisible();
-    expect(await page.evaluate(async () => (await window.pdfSearch.getState()).ready!.pid)).toBe(pid);
+    expect((await readState(page)).ready!.pid).toBe(pid);
     // Hold the worker page lookup while keeping the real Open PDF IPC handler.
     // This makes the transient operation visible long enough to check layout.
     await application.evaluate(({ app, shell }) => {
@@ -58,9 +58,9 @@ test('Electron searches with one resident worker and remembers the selected them
       const original = WorkerClient.prototype.request;
       let release!: () => void;
       const held = new Promise<void>((resolve) => { release = resolve; });
-      WorkerClient.prototype.request = async function<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-        if (method === 'page') await held;
-        return original.call(this, method, params) as Promise<T>;
+      WorkerClient.prototype.request = function(method, ...args) {
+        const request = () => Reflect.apply(original, this, [method, ...args]);
+        return method === 'page' ? held.then(request) : request();
       };
       const opened: string[] = [];
       shell.openPath = async (filename) => { opened.push(filename); return ''; };
@@ -75,7 +75,7 @@ test('Electron searches with one resident worker and remembers the selected them
     const openPDF = preview.getByRole('button', { name: /^(Open PDF|Opening…)$/ });
     const openBefore = await openPDF.boundingBox();
     await openPDF.click();
-    await expect.poll(() => page.evaluate(async () => (await window.pdfSearch.getState()).operation)).not.toBeNull();
+    await expect.poll(async () => (await readState(page)).operation).not.toBeNull();
     await expect(openPDF).toBeDisabled();
     await expect(openPDF).toHaveText('Opening…');
     await expect(sidebar.locator('.library-choice')).toBeDisabled();
@@ -110,7 +110,7 @@ test('Electron searches with one resident worker and remembers the selected them
     await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark');
     expect(await page.locator('.workspace').evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe(lightBackground);
     await expect(page.getByText(/Photovoltaic panels and wind turbines/)).toBeVisible();
-    expect(await page.evaluate(async () => (await window.pdfSearch.getState()).ready!.pid)).toBe(pid);
+    expect((await readState(page)).ready!.pid).toBe(pid);
     await page.getByText('Search options', { exact: true }).click();
     await expect(page.getByRole('combobox', { name: 'Maximum results' })).toBeVisible();
     await page.getByText('Search options', { exact: true }).click();
@@ -127,7 +127,7 @@ test('Electron searches with one resident worker and remembers the selected them
     application = await launch();
     const reopened = await application.firstWindow();
     await expect(reopened.getByText('Search engine ready')).toBeVisible({ timeout: 60_000 });
-    workerPID = await reopened.evaluate(async () => (await window.pdfSearch.getState()).ready!.pid);
+    workerPID = (await readState(reopened)).ready!.pid;
     await expect(reopened.getByRole('switch', { name: 'Dark mode' })).toBeChecked();
     await expect(reopened.getByRole('button', { name: 'Update index', exact: true })).toBeEnabled();
     await reopened.getByRole('switch', { name: 'Dark mode' }).click();

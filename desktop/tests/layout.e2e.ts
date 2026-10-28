@@ -1,3 +1,4 @@
+import { readState } from './fixture';
 import { test, expect, _electron as electron } from '@playwright/test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
@@ -18,7 +19,7 @@ test('main content and reports cannot move or scroll the library sidebar', async
     const page = await application.firstWindow();
     await expect(page.getByText('Search engine ready')).toBeVisible({ timeout: 60_000 });
     const snapshot: State = {
-      ...await page.evaluate(() => window.pdfSearch.getState()),
+      ...await readState(page),
       activeLibraryId: 'first',
       libraries: [{ id: 'first', name: 'Research', directory: path.join(work, 'Research') }, { id: 'second', name: 'Books', directory: path.join(work, 'Books') }],
       library: { directory: path.join(work, 'Research'), indexed: true, documents: 3, pages: 884, empty_pages: 27, updated_at: '2026-10-27T12:00:00Z' },
@@ -27,7 +28,14 @@ test('main content and reports cannot move or scroll the library sidebar', async
     // window geometry without depending on PDF extraction or inference timing.
     await application.evaluate(({ ipcMain, BrowserWindow }, state) => {
       ipcMain.removeHandler('state:get');
-      ipcMain.handle('state:get', () => state);
+      const handle: typeof ipcMain.handle = (channel, listener) => ipcMain.handle(channel, async (event, ...args) => {
+        try { return { ok: true, value: await listener(event, ...args) }; }
+        catch (error) { return { ok: false, error: {
+          code: error instanceof Error && 'code' in error ? error.code : 'operation_failed',
+          message: error instanceof Error ? error.message : String(error),
+        } }; }
+      });
+      handle('state:get', () => state);
       (globalThis as unknown as LayoutTestMain).layoutTest = {
         setIssues(issues) {
           state.library = { ...state.library!, issues };

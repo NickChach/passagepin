@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { DesktopAPI, WorkerEvent } from './types';
-const api: DesktopAPI = {
+import type { DesktopTransport, WorkerEvent } from './types';
+const api: DesktopTransport = {
   getState: () => ipcRenderer.invoke('state:get'),
   chooseFolder: () => ipcRenderer.invoke('library:choose'),
   selectLibrary: (id) => ipcRenderer.invoke('library:select', id),

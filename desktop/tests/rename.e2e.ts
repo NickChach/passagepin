@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { createLibrary } from './fixture';
+import { createLibrary, readState, readLegacyState } from './fixture';
 
 test('PassagePin restores the previous PDF Search library, index and theme', async () => {
   const previous = process.env.PDFSEARCH_TEST_PREVIOUS_BINARY;
@@ -21,13 +21,13 @@ test('PassagePin restores the previous PDF Search library, index and theme', asy
     }, root);
     const oldPage = await application.firstWindow();
     await expect(oldPage.getByText('Search engine ready')).toBeVisible({ timeout: 60_000 });
-    workerPIDs.push(await oldPage.evaluate(async () => (await window.pdfSearch.getState()).ready!.pid));
+    workerPIDs.push((await readLegacyState(oldPage)).ready!.pid);
     await oldPage.getByRole('button', { name: 'Choose folder', exact: true }).click();
     await oldPage.getByRole('button', { name: 'Index folder', exact: true }).click();
     await expect(oldPage.getByText('2 searchable pages are ready.')).toBeVisible({ timeout: 60_000 });
     const oldSwitch = oldPage.getByRole('switch', { name: 'Dark mode' });
     if (!(await oldSwitch.isChecked())) await oldSwitch.click();
-    const originalState = await oldPage.evaluate(() => window.pdfSearch.getState());
+    const originalState = await readLegacyState(oldPage);
     const libraryPreference = await readFile(path.join(legacyProfile, 'library.json'), 'utf8');
     await application.close(); application = undefined;
 
@@ -40,7 +40,7 @@ test('PassagePin restores the previous PDF Search library, index and theme', asy
     await expect(page.getByText('Search engine ready')).toBeVisible({ timeout: 60_000 });
     await expect(page.getByRole('button', { name: 'Update index', exact: true })).toBeEnabled();
     await expect(page.getByRole('switch', { name: 'Dark mode' })).toBeChecked();
-    const restored = await page.evaluate(() => window.pdfSearch.getState());
+    const restored = await readState(page);
     workerPIDs.push(restored.ready!.pid);
     expect(restored.library).toEqual(originalState.library);
     expect(await readFile(path.join(legacyProfile, 'library.json'), 'utf8')).toBe(libraryPreference);

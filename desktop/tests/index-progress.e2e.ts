@@ -5,7 +5,7 @@ import os from 'node:os';
 import type { Progress } from '../electron/types';
 
 interface IndexTestMain {
-  indexProgressTest: { emit(events: Progress[]): void; finish(error?: string): void };
+  indexProgressTest: { emit(events: Progress[]): void; finish(error?: string, code?: string): void };
 }
 
 test('concurrent PDFs keep separate progress rows through completion, cancellation and failure', async () => {
@@ -25,11 +25,11 @@ test('concurrent PDFs keep separate progress rows through completion, cancellati
       const publish = (event: unknown) => BrowserWindow.getAllWindows()[0].webContents.send('worker:event', event);
       const controls = {
         emit(events: Progress[]) { for (const data of events) publish({ kind: 'progress', data }); },
-        finish(error?: string) {
+        finish(error?: string, code = 'operation_failed') {
           if (!pending) throw new Error('No index operation is pending');
           const job = pending; pending = undefined;
           publish({ kind: 'operation', data: null });
-          if (error) { job.reject(new Error(error)); return; }
+          if (error) { job.reject(Object.assign(new Error(error), { code })); return; }
           library = { ...library, indexed: true, documents: 3, pages: 30 };
           publish({ kind: 'library', data: library });
           job.resolve({ library, stats: { indexed: 3, reused: 2, pages: 30, empty_pages: 0 } });
@@ -37,12 +37,19 @@ test('concurrent PDFs keep separate progress rows through completion, cancellati
       };
       (globalThis as unknown as IndexTestMain).indexProgressTest = controls;
       for (const name of ['state:get', 'library:index', 'worker:cancel']) ipcMain.removeHandler(name);
-      ipcMain.handle('state:get', () => ({ ready: { protocol: 1, pid: process.pid, model_loads: 1 }, error: null, operation: null, library }));
-      ipcMain.handle('library:index', () => {
+      const handle: typeof ipcMain.handle = (channel, listener) => ipcMain.handle(channel, async (event, ...args) => {
+        try { return { ok: true, value: await listener(event, ...args) }; }
+        catch (error) { return { ok: false, error: {
+          code: error instanceof Error && 'code' in error ? error.code : 'operation_failed',
+          message: error instanceof Error ? error.message : String(error),
+        } }; }
+      });
+      handle('state:get', () => ({ ready: { protocol: 1, pid: process.pid, model_loads: 1 }, error: null, operation: null, library }));
+      handle('library:index', () => {
         publish({ kind: 'operation', data: 'indexing' });
         return new Promise((resolve, reject) => { pending = { resolve, reject }; });
       });
-      ipcMain.handle('worker:cancel', () => controls.finish('context canceled'));
+      handle('worker:cancel', () => controls.finish('User stopped this request', 'cancelled'));
     }, work);
     await page.reload();
     const emit = (events: Progress[]) => application.evaluate((_electron, data) => (globalThis as unknown as IndexTestMain).indexProgressTest.emit(data), events);

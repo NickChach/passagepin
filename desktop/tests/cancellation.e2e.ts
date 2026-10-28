@@ -17,24 +17,31 @@ test('first search and automatic and manual previews expose cancellation', async
       let stop: (() => void) | undefined;
       const library = { directory, indexed: true, documents: 1, pages: 1, empty_pages: 0, updated_at: null };
       for (const channel of ['state:get', 'library:search', 'library:page', 'worker:cancel']) ipcMain.removeHandler(channel);
-      ipcMain.handle('state:get', () => ({ ready: { protocol: 1, pid: process.pid, model_loads: 1 }, error: null, operation: null, library, libraryError: null, libraries: [{ id: 'research', name: 'Research', directory }], activeLibraryId: 'research' }));
-      ipcMain.handle('library:search', async (event, query: string) => {
+      const handle: typeof ipcMain.handle = (channel, listener) => ipcMain.handle(channel, async (event, ...args) => {
+        try { return { ok: true, value: await listener(event, ...args) }; }
+        catch (error) { return { ok: false, error: {
+          code: error instanceof Error && 'code' in error ? error.code : 'operation_failed',
+          message: error instanceof Error ? error.message : String(error),
+        } }; }
+      });
+      handle('state:get', () => ({ ready: { protocol: 1, pid: process.pid, model_loads: 1 }, error: null, operation: null, library, libraryError: null, libraries: [{ id: 'research', name: 'Research', directory }], activeLibraryId: 'research' }));
+      handle('library:search', async (event, query: string) => {
         searches++;
         if (searches === 1) {
           event.sender.send('worker:event', { kind: 'operation', data: 'searching' });
           return new Promise((_resolve, reject) => {
-            stop = () => { event.sender.send('worker:event', { kind: 'operation', data: null }); reject(new Error('context canceled')); };
+            stop = () => { event.sender.send('worker:event', { kind: 'operation', data: null }); reject(Object.assign(new Error('User stopped this request'), { code: 'cancelled' })); };
           });
         }
         return { results: [{ filename: 'example.pdf', page: 1, score: .8 }], query };
       });
-      ipcMain.handle('library:page', async (event) => {
+      handle('library:page', async (event) => {
         event.sender.send('worker:event', { kind: 'operation', data: 'reading' });
         return new Promise((_resolve, reject) => {
-          stop = () => { event.sender.send('worker:event', { kind: 'operation', data: null }); reject(new Error('context canceled')); };
+          stop = () => { event.sender.send('worker:event', { kind: 'operation', data: null }); reject(Object.assign(new Error('User stopped this request'), { code: 'cancelled' })); };
         });
       });
-      ipcMain.handle('worker:cancel', () => { const cancel = stop; stop = undefined; cancel?.(); });
+      handle('worker:cancel', () => { const cancel = stop; stop = undefined; cancel?.(); });
     }, work);
     const page = await application.firstWindow();
     await page.reload();
@@ -73,6 +80,14 @@ test('first search and automatic and manual previews expose cancellation', async
     await page.getByRole('button', { name: 'Cancel reading', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Search', exact: true })).toBeEnabled();
     await expect(page.getByRole('button', { name: /^Cancel / })).toHaveCount(0);
+    await application.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler('library:page');
+      ipcMain.handle('library:page', () => ({ ok: false, error: { code: 'operation_failed', message: 'Cannot open cancelled.pdf: no such file' } }));
+    });
+    await page.getByRole('list', { name: 'Matching pages' }).getByRole('listitem').click();
+    await expect(page.getByRole('alert')).toContainText('Cannot open cancelled.pdf');
+    await expect(page.getByText('Stopped. The last saved index is still available.')).toHaveCount(0);
+
   } finally {
     await application.close();
     await rm(work, { recursive: true, force: true });

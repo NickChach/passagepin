@@ -1,3 +1,5 @@
+import { desktopAPI } from './desktop-api';
+import { DesktopError } from '../electron/ipc-result';
 import { useEffect, useState } from "react";
 import type { PageText, SavedLibrary, SearchResult, State } from "../electron/types";
 import { saveTheme, type Theme } from "./theme";
@@ -20,8 +22,9 @@ const initial: State = {
 	activeLibraryId: null,
 	libraryError: null,
 };
+const api = () => desktopAPI(window.pdfSearch);
 const message = (error: unknown) =>
-	error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, "") : String(error);
+	error instanceof Error ? error.message : String(error);
 
 export default function App() {
 	const [theme, setTheme] = useState<Theme>(() => (document.documentElement.dataset.theme === "dark" ? "dark" : "light"));
@@ -55,7 +58,7 @@ export default function App() {
 			setError("Open PassagePin as a desktop application.");
 			return;
 		}
-		const unsubscribe = window.pdfSearch.onEvent((event) => {
+		const unsubscribe = api().onEvent((event) => {
 			if (event.kind === "ready") setState((s) => ({ ...s, ready: event.data, error: null }));
 			if (event.kind === "starting") {
 				setState((s) => ({ ...s, ready: null, error: null }));
@@ -78,7 +81,7 @@ export default function App() {
 			if (event.kind === "library-error") setState((s) => ({ ...s, libraryError: event.data }));
 			if (event.kind === "progress") setProgress((current) => updateIndexProgress(current, event.data));
 		});
-		void window.pdfSearch
+		void api()
 			.getState()
 			.then(setState)
 			.catch((err: unknown) => setError(message(err)));
@@ -90,12 +93,15 @@ export default function App() {
 		setSelected(null);
 		setPreview(null);
 		setLastQuery("");
-		setProgress(emptyIndexProgress());
 	}
-	useEffect(() => {
+	function resetLibraryView() {
 		clearSearch();
+		setProgress(emptyIndexProgress());
 		setEditing(null);
 		setRemoving(null);
+	}
+	useEffect(() => {
+		resetLibraryView();
 	}, [library?.directory]);
 
 	async function perform(name: string, work: () => Promise<void>) {
@@ -106,7 +112,7 @@ export default function App() {
 			await work();
 		} catch (err) {
 			const detail = message(err);
-			if (detail.includes("context canceled") || detail.includes("cancelled"))
+			if (err instanceof DesktopError && err.code === "cancelled")
 				setNotice("Stopped. The last saved index is still available.");
 			else setError(detail);
 		} finally {
@@ -115,34 +121,30 @@ export default function App() {
 	}
 	async function chooseFolder() {
 		await perform("opening", async () => {
-			const chosen = await window.pdfSearch.chooseFolder();
+			const chosen = await api().chooseFolder();
 			if (!chosen) return;
 			setState((s) => ({ ...s, library: chosen }));
-			clearSearch();
-			setEditing(null);
-			setRemoving(null);
+			resetLibraryView();
 		});
 	}
 	async function selectLibrary(id: string) {
 		await perform("opening", async () => {
-			const chosen = await window.pdfSearch.selectLibrary(id);
+			const chosen = await api().selectLibrary(id);
 			setState((s) => ({ ...s, library: chosen }));
-			clearSearch();
-			setEditing(null);
-			setRemoving(null);
+			resetLibraryView();
 		});
 	}
 	async function renameLibrary() {
 		if (!editing || busy) return;
 		await perform("renaming", async () => {
-			setState(await window.pdfSearch.renameLibrary(editing.id, nameDraft.trim()));
+			setState(await api().renameLibrary(editing.id, nameDraft.trim()));
 			setEditing(null);
 		});
 	}
 	async function removeLibrary() {
 		if (!removing || busy) return;
 		await perform("removing", async () => {
-			setState(await window.pdfSearch.removeLibrary(removing.id));
+			setState(await api().removeLibrary(removing.id));
 			setRemoving(null);
 			setNotice(`Removed “${removing.name}” and its cached index. Your PDFs are unchanged.`);
 		});
@@ -150,12 +152,9 @@ export default function App() {
 	async function indexFolder() {
 		await perform("indexing", async () => {
 			setProgress(emptyIndexProgress());
-			const result = await window.pdfSearch.index(Boolean(library?.issue));
+			const result = await api().index(Boolean(library?.issue));
 			setState((s) => ({ ...s, library: result.library }));
-			setResults([]);
-			setSelected(null);
-			setPreview(null);
-			setLastQuery("");
+			clearSearch();
 			const summary =
 				result.stats.pages > 0
 					? `${result.stats.pages.toLocaleString()} searchable pages are ready.`
@@ -168,13 +167,13 @@ export default function App() {
 	async function readPage(result: SearchResult) {
 		setSelected(result);
 		setPreview((current) => (current?.filename === result.filename && current.page === result.page ? current : null));
-		const page = await window.pdfSearch.page(result.filename, result.page);
+		const page = await api().page(result.filename, result.page);
 		setPreview(page);
 	}
 	async function search() {
 		if (!query.trim() || !library?.indexed || busy) return;
 		await perform("searching", async () => {
-			const found = await window.pdfSearch.search(query.trim(), top, minimum);
+			const found = await api().search(query.trim(), top, minimum);
 			setResults(found.results);
 			setLastQuery(found.query);
 			if (found.results[0]) await readPage(found.results[0]);
@@ -186,11 +185,8 @@ export default function App() {
 	}
 	async function restart() {
 		await perform("restarting", async () => {
-			setState(await window.pdfSearch.restart());
-			setResults([]);
-			setSelected(null);
-			setPreview(null);
-			setLastQuery("");
+			setState(await api().restart());
+			clearSearch();
 		});
 	}
 
@@ -198,7 +194,7 @@ export default function App() {
 	const canSearch = ready && Boolean(library?.indexed && library.pages > 0 && query.trim());
 
 	function cancel() {
-		void window.pdfSearch.cancel().catch((err: unknown) => setError(message(err)));
+		void api().cancel().catch((err: unknown) => setError(message(err)));
 	}
 
 	return (
@@ -288,7 +284,7 @@ export default function App() {
 						openingPDF={action === "opening-pdf"}
 						onSelect={(result) => void perform("reading", () => readPage(result))}
 						onOpenPDF={() => {
-							if (selected) void perform("opening-pdf", () => window.pdfSearch.openPDF(selected.filename, selected.page));
+							if (selected) void perform("opening-pdf", () => api().openPDF(selected.filename, selected.page));
 						}}
 					/>
 				) : (
