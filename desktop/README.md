@@ -40,8 +40,10 @@ Use the **Dark mode** switch at the bottom of the sidebar to change appearance.
 The first launch follows the system's color preference; an explicit selection
 is saved locally and restored when the app is reopened.
 PassagePin retains the original `pdfsearch-desktop` user-data directory and
-theme preference key so existing indexes, library selections and appearance
-settings carry over from PDF Search without reindexing.
+theme preference key so library selections and appearance settings carry over
+from PDF Search. If an existing index uses an incompatible format, the app
+offers **Rebuild index** before it can be searched. Rebuilding leaves the PDFs
+unchanged.
 Search scores are similarities, not probabilities or definitive topic detection.
 The root README describes PDF-parser support and OCR limitations.
 
@@ -204,4 +206,6 @@ PDFSEARCH_TEST_PACKAGED_BINARY="$PWD/releases/PassagePin-0.8.0-x86_64.AppImage" 
 ```
 
 The compatibility check creates an index and dark-mode preference in the old
-app, then verifies both are restored and searchable in PassagePin.
+app, then verifies that PassagePin restores the library and theme, offers to
+rebuild the incompatible index, and can search it after rebuilding. The regular
+Electron suite also exercises this flow using a simulated older index version.
