@@ -109,7 +109,7 @@ func readDocument(ctx context.Context, f *os.File) (*document, error) {
 			return nil, fmt.Errorf("too many PDF objects")
 		}
 		if trailer["Encrypt"] != nil {
-			return nil, fmt.Errorf("encrypted PDFs are not supported; decrypt the PDF first")
+			return nil, unsupported("encryption", "encrypted PDFs are not supported; decrypt the PDF first")
 		}
 		if root == nil {
 			root = trailer["Root"]

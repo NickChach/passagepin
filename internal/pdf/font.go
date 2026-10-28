@@ -23,6 +23,7 @@ type unicodeMap struct {
 }
 type font struct {
 	label        string
+	composite    bool
 	unicode      *unicodeMap
 	encoding     map[byte]string
 	widths       map[int]float64
@@ -32,6 +33,13 @@ type font struct {
 func unicodeString(raw []byte) (string, error) {
 	if len(raw) == 0 || len(raw)%2 != 0 || len(raw) > 1024 {
 		return "", fmt.Errorf("ToUnicode destination must be UTF-16BE")
+	}
+	return decodeUTF16(raw)
+}
+
+func decodeUTF16(raw []byte) (string, error) {
+	if len(raw)%2 != 0 {
+		return "", fmt.Errorf("odd UTF-16BE string length")
 	}
 	units := make([]uint16, len(raw)/2)
 	for i := range units {
@@ -98,7 +106,7 @@ func parseCMap(data []byte) (*unicodeMap, error) {
 			continue
 		}
 		if op == "usecmap" {
-			return nil, fmt.Errorf("ToUnicode usecmap inheritance is not supported")
+			return nil, unsupported("tounicode-inheritance", "ToUnicode usecmap inheritance is not supported")
 		}
 		if op != "beginbfchar" && op != "beginbfrange" && op != "begincodespacerange" {
 			previous = v
@@ -222,6 +230,9 @@ func (d *document) loadFont(v value) (*font, error) {
 		if !ok {
 			return nil, fmt.Errorf("ToUnicode is not a stream")
 		}
+		if s.dict["UseCMap"] != nil {
+			return nil, unsupported("tounicode-inheritance", "ToUnicode UseCMap inheritance is not supported")
+		}
 		data, err := d.decode(s)
 		if err != nil {
 			return nil, err
@@ -232,6 +243,7 @@ func (d *document) loadFont(v value) (*font, error) {
 		}
 	}
 	composite := fd["Subtype"] == name("Type0")
+	f.composite = composite
 	enc, err := d.resolve(fd["Encoding"])
 	if err != nil {
 		return nil, err
@@ -239,10 +251,10 @@ func (d *document) loadFont(v value) (*font, error) {
 	if composite {
 		n, ok := enc.(name)
 		if !ok || (n != "Identity-H") {
-			return nil, fmt.Errorf("unsupported composite font encoding %v (requires Identity-H)", enc)
+			return nil, unsupported("composite-font-encoding", "unsupported composite font encoding %v (requires Identity-H)", enc)
 		}
 		if f.unicode == nil {
-			return nil, fmt.Errorf("composite font needs a ToUnicode map")
+			return nil, unsupported("missing-unicode-map", "composite font needs a ToUnicode map")
 		}
 		descendants, err := d.resolve(fd["DescendantFonts"])
 		if err != nil {
@@ -332,7 +344,7 @@ func (d *document) loadFont(v value) (*font, error) {
 	if enc == nil && f.unicode == nil {
 		base, _ := fd["BaseFont"].(name)
 		if strings.Contains(string(base), "Symbol") || strings.Contains(string(base), "ZapfDingbats") {
-			return nil, fmt.Errorf("symbolic font needs an explicit ToUnicode map")
+			return nil, unsupported("missing-unicode-map", "symbolic font needs an explicit ToUnicode map")
 		}
 		// Embedded fonts without an explicit encoding can define arbitrary glyph
 		// codes. Do not silently interpret those codes as English text.
@@ -359,7 +371,7 @@ func (d *document) loadFont(v value) (*font, error) {
 					return nil, err
 				}
 			} else if desc["FontFile2"] != nil || desc["FontFile3"] != nil {
-				return nil, fmt.Errorf("embedded font needs an explicit Encoding or ToUnicode map")
+				return nil, unsupported("missing-unicode-map", "embedded font needs an explicit Encoding or ToUnicode map")
 			}
 		}
 	}
@@ -448,14 +460,14 @@ func type1Encoding(data []byte) (map[byte]string, error) {
 		code, ok := integer(codeRaw)
 		glyph, okGlyph := glyphRaw.(name)
 		if !ok || !okGlyph || code < 0 || code > 255 || put != keyword("put") {
-			return nil, fmt.Errorf("unsupported Type 1 encoding program")
+			return nil, unsupported("type1-encoding", "unsupported Type 1 encoding program")
 		}
 		if text, ok := glyphUnicode(string(glyph)); ok {
 			result[byte(code)] = text
 		}
 	}
 	if !found || len(result) == 0 {
-		return nil, fmt.Errorf("Type 1 font lacks a supported built-in encoding")
+		return nil, unsupported("type1-encoding", "Type 1 font lacks a supported built-in encoding")
 	}
 	return result, nil
 }
@@ -485,7 +497,7 @@ func (f *font) decode(raw []byte, budget int) (string, float64, int, int, error)
 			chars, found = f.encoding[raw[0]]
 		}
 		if !found {
-			return "", 0, 0, 0, fmt.Errorf("font %s has no Unicode mapping for character code %x", f.label, raw[:min(size, len(raw))])
+			return "", 0, 0, 0, unsupported("missing-unicode-map", "font %s has no Unicode mapping for character code %x", f.label, raw[:min(size, len(raw))])
 		}
 		code := codeNumber(raw[:size])
 		w, ok := f.widths[code]
@@ -558,7 +570,7 @@ func simpleEncoding(v value) (map[byte]string, error) {
 			}
 		}
 	default:
-		return nil, fmt.Errorf("unsupported font encoding /%s", base)
+		return nil, unsupported("font-encoding", "unsupported font encoding /%s", base)
 	}
 	code := -1
 	for _, v := range differences {

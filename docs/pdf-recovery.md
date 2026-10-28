@@ -29,8 +29,9 @@ Healthy files with these supported normal-reading features still use normal
 parsing. Recovery can fix structural bookkeeping without resolving unrelated
 font, content-stream or text-extraction limitations.
 
-Index format version 4 requires rebuilding older indexes so vectors generated
-by the previous recovery logic cannot be reused.
+Index format version 5 requires rebuilding older indexes so vectors generated
+before marked-content `ActualText` support and explicit rejection of inherited
+ToUnicode maps cannot be reused. Version 4 introduced revision-chain-safe recovery.
 
 Unreadable PDFs are skipped as complete documents. Queued work for a failed PDF
 is discarded, running embedding calls are joined, and no vectors from that PDF
@@ -41,7 +42,14 @@ source hash, and their recovery status stays visible.
 
 The app saves the usable documents and file report atomically. The report
 contains filenames, outcomes and reasons, with physical page numbers when
-available. It survives application restarts and is refreshed on every update.
+available. A page number identifies where reading failed; the entire PDF is
+excluded, with no pages indexed. Known unsupported features also have a stable
+`feature` identifier (for example `encryption`, `inline-image`, `stream-filter`,
+`composite-font-encoding`, `tounicode-inheritance` or `missing-unicode-map`).
+Other errors retain their parser or filesystem reason without a guessed feature.
+Blank/image-only pages return empty text and are counted separately from failed
+PDFs; OCR applies to image-only pages, not to font-decoding errors.
+The report survives application restarts and is refreshed on every update.
 If every PDF is unreadable, the resulting index is empty and the report lists
 the skipped files. Source PDFs remain available outside PassagePin.
 

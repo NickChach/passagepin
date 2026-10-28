@@ -201,7 +201,7 @@ export default function App() {
         <p>Skipped PDFs are excluded from search results. Original files are unchanged.</p>
         <ul>{fileIssues.map((issue) => <li key={`${issue.kind}:${issue.filename}`}>
           <strong>{issue.filename}</strong>
-          <span>{issue.kind === 'skipped' ? 'Skipped' : 'Indexed using recovery'}{issue.page ? ` (page ${issue.page})` : ''}</span>
+          <span>{issue.kind === 'skipped' ? 'Skipped — no pages indexed' : 'Indexed using recovery'}{issue.page ? ` (failed on page ${issue.page})` : ''}</span>
           <p>{issue.kind === 'recovered' ? 'Original reading issue: ' : ''}{issue.reason}</p>
         </li>)}</ul>
       </details></section>}

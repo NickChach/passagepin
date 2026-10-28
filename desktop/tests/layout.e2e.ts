@@ -40,7 +40,7 @@ test('main content and reports cannot move or scroll the library sidebar', async
     const footer = sidebar.locator('.sidebar-footer');
     const workspace = page.getByRole('main');
     const report = page.getByRole('region', { name: 'Indexing report', exact: true });
-    const issues: FileIssue[] = Array.from({ length: 6 }, (_, index) => ({ filename: `Unreadable document ${index + 1}.pdf`, kind: 'skipped', reason: 'This PDF could not be read. '.repeat(20) }));
+    const issues: FileIssue[] = Array.from({ length: 6 }, (_, index) => ({ filename: `Unreadable document ${index + 1}.pdf`, kind: 'skipped', page: 2, feature: 'stream-filter', reason: 'This PDF could not be read. '.repeat(20) }));
     const setIssues = (data: FileIssue[]) => application.evaluate((_electron, next) => (globalThis as unknown as LayoutTestMain).layoutTest.setIssues(next), data);
     await expect(sidebar.getByText('Research', { exact: true })).toBeVisible();
 
@@ -67,6 +67,7 @@ test('main content and reports cannot move or scroll the library sidebar', async
       await expectStableSidebar();
       await report.locator('summary').click();
       await expect(report.getByText('Unreadable document 1.pdf', { exact: true })).toBeVisible();
+      await expect(report.getByText('Skipped — no pages indexed (failed on page 2)', { exact: true })).toHaveCount(6);
       await expectStableSidebar();
       await workspace.evaluate((element) => { element.scrollTop = element.scrollHeight; });
       await expect.poll(() => workspace.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);

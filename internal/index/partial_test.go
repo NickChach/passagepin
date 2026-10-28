@@ -7,13 +7,64 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/darkearl/semantic-search/internal/pdf"
 	"github.com/darkearl/semantic-search/internal/testpdf"
 )
+
+func TestCorpusIndexReportsAndReplacementText(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"actualtext-inline.pdf", "image-only.pdf", "inherited-tounicode.pdf", "late-page-failure.pdf"} {
+		data, err := os.ReadFile(filepath.Join("../pdf/testdata/corpus", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, name), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var embedded sync.Map
+	model := embedFunc(func(_ context.Context, text string) ([]float32, error) {
+		embedded.Store(text, true)
+		return unit(0), nil
+	})
+	var log bytes.Buffer
+	idx, stats, err := BuildConcurrent(context.Background(), root, "weights", true, nil, func() (Extractor, error) { return pdf.New() }, model, &log, nil, Options{2, 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Indexed != 2 || stats.Skipped != 2 || stats.Pages != 1 || stats.EmptyPages != 1 || len(idx.Documents) != 2 {
+		t.Fatalf("corpus stats: %+v", stats)
+	}
+	if _, ok := embedded.Load("office work"); !ok {
+		t.Fatal("replacement text did not reach the embedder")
+	}
+	for _, issue := range idx.Issues {
+		wantPage, wantFeature := 1, "tounicode-inheritance"
+		if issue.Filename == "late-page-failure.pdf" {
+			wantPage, wantFeature = 2, "stream-filter"
+		}
+		if issue.Kind != "skipped" || issue.Page != wantPage || issue.Feature != wantFeature {
+			t.Fatalf("wrong report scope/feature: %+v", issue)
+		}
+	}
+	if !strings.Contains(log.String(), "late-page-failure.pdf (page 2)") || !strings.Contains(log.String(), "no pages from this PDF were indexed") {
+		t.Fatalf("ambiguous failure log: %s", log.String())
+	}
+	path := filepath.Join(t.TempDir(), "index.json")
+	if err := idx.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil || !reflect.DeepEqual(loaded.Issues, idx.Issues) {
+		t.Fatalf("lost feature diagnostics on reload: %v", err)
+	}
+}
 
 func TestPartialIndexDiscardsFailedDocumentsAndPersistsReports(t *testing.T) {
 	root := t.TempDir()

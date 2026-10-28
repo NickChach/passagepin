@@ -150,7 +150,7 @@ func (d *document) decode(s *stream) ([]byte, error) {
 				return nil, err
 			}
 		default:
-			return nil, fmt.Errorf("unsupported PDF stream filter /%s", n)
+			return nil, unsupported("stream-filter", "unsupported PDF stream filter /%s", n)
 		}
 		if len(data) > maxStream {
 			return nil, fmt.Errorf("decoded PDF stream exceeds %d MiB", maxStream>>20)
@@ -299,7 +299,7 @@ func undoPredictor(data []byte, options dict) ([]byte, error) {
 		return out, nil
 	}
 	if predictor < 10 || predictor > 15 {
-		return nil, fmt.Errorf("unsupported predictor %d", predictor)
+		return nil, unsupported("stream-predictor", "unsupported predictor %d", predictor)
 	}
 	if len(data)%(row+1) != 0 {
 		return nil, fmt.Errorf("truncated PNG predictor data")

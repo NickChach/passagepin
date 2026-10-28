@@ -15,9 +15,9 @@ import (
 	"github.com/darkearl/semantic-search/internal/embedding"
 )
 
-// Version 4 rebuilds vectors produced before recovery honored the selected
-// PDF revision chain, which could include content from discarded revisions.
-const Version = 4
+// Version 5 rebuilds vectors so marked-content ActualText replacements are
+// indexed, and inherited ToUnicode maps cannot silently produce partial text.
+const Version = 5
 
 type Page struct {
 	Number int       `json:"number"`
@@ -47,6 +47,7 @@ type FileIssue struct {
 	Kind     string `json:"kind"` // recovered or skipped
 	Reason   string `json:"reason"`
 	Page     int    `json:"page,omitempty"`
+	Feature  string `json:"feature,omitempty"`
 }
 
 type Extractor interface {

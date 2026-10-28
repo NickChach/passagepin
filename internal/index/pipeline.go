@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/darkearl/semantic-search/internal/embedding"
+	"github.com/darkearl/semantic-search/internal/pdf"
 )
 
 // Options bounds CPU work, open PDF readers, and queued page text. The embedder
@@ -189,10 +190,18 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 			return
 		}
 		issue := FileIssue{Filename: filename, Kind: "skipped", Reason: issueReason(err), Page: page}
+		var unsupported *pdf.UnsupportedFeatureError
+		if errors.As(err, &unsupported) {
+			issue.Feature = unsupported.Feature
+		}
 		notify(Progress{Phase: "skipped", Filename: filename, Page: page, Reason: issue.Reason})
 		if progress != nil {
 			outputMu.Lock()
-			fmt.Fprintf(progress, "Skipped: %s: %s\n", filename, issue.Reason)
+			fmt.Fprintf(progress, "Skipped: %s", filename)
+			if page > 0 {
+				fmt.Fprintf(progress, " (page %d)", page)
+			}
+			fmt.Fprintf(progress, ": %s; no pages from this PDF were indexed\n", issue.Reason)
 			outputMu.Unlock()
 		}
 		select {

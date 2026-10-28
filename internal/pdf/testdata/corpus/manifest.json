@@ -1,0 +1,173 @@
+{
+  "source": "Self-authored fixtures; regenerate with generate.go. No external documents or font programs.",
+  "license": "MIT",
+  "cases": [
+    {
+      "file": "flate-inherited.pdf",
+      "features": [
+        "FlateDecode",
+        "inherited-resources",
+        "WinAnsi",
+        "Type1"
+      ],
+      "pages": [
+        {
+          "text": "Hello Café"
+        }
+      ]
+    },
+    {
+      "file": "actualtext-inline.pdf",
+      "features": [
+        "ActualText",
+        "ligature",
+        "TJ",
+        "word-boundaries"
+      ],
+      "pages": [
+        {
+          "text": "office work"
+        }
+      ]
+    },
+    {
+      "file": "actualtext-properties.pdf",
+      "features": [
+        "ActualText",
+        "indirect-property-list",
+        "PDFDocEncoding"
+      ],
+      "pages": [
+        {
+          "text": "Cost €10 • café"
+        }
+      ]
+    },
+    {
+      "file": "actualtext-utf16.pdf",
+      "features": [
+        "ActualText",
+        "UTF-16BE",
+        "surrogate-pair"
+      ],
+      "pages": [
+        {
+          "text": "Αλ😀"
+        }
+      ]
+    },
+    {
+      "file": "actualtext-nested-form.pdf",
+      "features": [
+        "ActualText",
+        "nested-marked-content",
+        "Form-XObject"
+      ],
+      "pages": [
+        {
+          "text": "outer replacement next"
+        }
+      ]
+    },
+    {
+      "file": "cid-unicode.pdf",
+      "features": [
+        "Identity-H",
+        "CIDFontType2",
+        "ToUnicode",
+        "ligature",
+        "surrogate-pair"
+      ],
+      "pages": [
+        {
+          "text": "Afi😀"
+        }
+      ]
+    },
+    {
+      "file": "actualtext-unmapped-cid.pdf",
+      "features": [
+        "ActualText",
+        "Identity-H",
+        "missing-glyph-mapping"
+      ],
+      "pages": [
+        {
+          "text": "decodedA"
+        }
+      ]
+    },
+    {
+      "file": "columns.pdf",
+      "features": [
+        "two-columns",
+        "row-major-content-order"
+      ],
+      "pages": [
+        {
+          "text": "Left one Left two Right one Right two",
+          "known_limitation": "Column reconstruction is not implemented; assert text retention, record target column order."
+        }
+      ]
+    },
+    {
+      "file": "image-only.pdf",
+      "features": [
+        "Image-XObject",
+        "no-text-layer"
+      ],
+      "pages": [
+        {
+          "text": ""
+        }
+      ]
+    },
+    {
+      "file": "inline-image.pdf",
+      "features": [
+        "inline-image",
+        "unsupported"
+      ],
+      "pages": [
+        {
+          "text": "",
+          "error_contains": "inline images are not supported",
+          "unsupported_feature": "inline-image"
+        }
+      ]
+    },
+    {
+      "file": "inherited-tounicode.pdf",
+      "features": [
+        "ToUnicode",
+        "UseCMap",
+        "unsupported"
+      ],
+      "pages": [
+        {
+          "text": "",
+          "error_contains": "UseCMap inheritance is not supported",
+          "unsupported_feature": "tounicode-inheritance"
+        }
+      ]
+    },
+    {
+      "file": "late-page-failure.pdf",
+      "features": [
+        "multi-page",
+        "unsupported-filter",
+        "failure-isolation"
+      ],
+      "pages": [
+        {
+          "text": "healthy first page"
+        },
+        {
+          "text": "",
+          "error_contains": "unsupported PDF stream filter",
+          "unsupported_feature": "stream-filter"
+        }
+      ]
+    }
+  ]
+}

@@ -219,6 +219,8 @@ supports:
 - Flate, LZW (both EarlyChange modes), ASCII85, ASCIIHex and RunLength filters, PNG predictors, and TIFF prediction for 8-bit components.
 - Literal and hexadecimal strings; text-show, text-position and spacing operators; graphics transformations; Form XObjects. Image XObjects
   are skipped without decoding their pixels.
+- Marked-content `ActualText` replacements in direct dictionaries or named resource properties, including PDFDocEncoding and UTF-16BE
+  text, nested sequences and Form XObjects. A replacement is emitted once; covered glyphs still advance the text position.
 - ToUnicode CMaps with character and range mappings, UTF-16 surrogate pairs and multi-character mappings; horizontal Identity-H CID fonts;
   Standard, WinAnsi and MacRoman encodings with Differences; common explicit built-in encodings in embedded Type 1 fonts; embedded
   horizontal metrics for the 14 standard PDF fonts when explicit widths are omitted.
@@ -235,9 +237,15 @@ an explicit encoding and a Unicode map. Unknown glyph mappings also return error
 declarative forms cannot be read. Image-only pages with ordinary image XObjects yield no text and still require OCR.
 
 Text follows content-stream order with approximate spaces inferred from glyph positions. There is no advanced column/table reconstruction,
-annotation text extraction, or interpretation of marked-content `ActualText` overrides. Reading order and extraction fidelity can therefore
+annotation text extraction, or interpretation of `ActualText` on structure-tree elements. Fonts still have to load using the supported
+encodings and font structures even inside a replacement; `ActualText` can supply missing individual glyph mappings in otherwise supported
+fonts. Reading order and extraction fidelity can therefore
 differ from a full PDF engine. Streams and a page's combined content are limited to 64 MiB, with additional object and recursion limits.
 Decoded page contents are released after extraction; document structure is kept until the reader advances to the next PDF.
+
+The [PDF extraction corpus](internal/pdf/testdata/corpus/README.md) contains reproducible, self-authored MIT-licensed fixtures with expected
+page text, explicit unsupported-feature outcomes, and a tracked column-order limitation. Run `go test -v ./internal/pdf -run TestExtractionCorpus`
+to check it. Index format version 5 requires rebuilding older indexes so cached vectors use the updated extraction semantics.
 
 ## Practical limits
 

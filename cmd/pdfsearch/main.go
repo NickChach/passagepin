@@ -248,11 +248,18 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 				if issue.Page > 0 {
 					fmt.Fprintf(stderr, " (page %d)", issue.Page)
 				}
-				fmt.Fprintf(stderr, ": %s\n", issue.Reason)
+				if issue.Feature != "" {
+					fmt.Fprintf(stderr, " [%s]", issue.Feature)
+				}
+				fmt.Fprintf(stderr, ": %s", issue.Reason)
+				if issue.Kind == "skipped" {
+					fmt.Fprint(stderr, "; no pages from this PDF were indexed")
+				}
+				fmt.Fprintln(stderr)
 			}
 		}
 		if stats.EmptyPages > 0 {
-			fmt.Fprintln(stderr, "Pages without extractable text need OCR before they can be searched.")
+			fmt.Fprintln(stderr, "Blank pages and pages with no searchable text were skipped. Scanned image-only pages need OCR.")
 		}
 		return nil
 	case "search":

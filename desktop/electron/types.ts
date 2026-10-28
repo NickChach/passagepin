@@ -10,7 +10,7 @@ export interface Library {
 }
 export interface SavedLibrary { id: string; name: string; directory: string }
 export interface SavedLibraries { libraries: SavedLibrary[]; activeLibraryId: string | null }
-export interface FileIssue { filename: string; kind: 'recovered' | 'skipped'; reason: string; page?: number }
+export interface FileIssue { filename: string; kind: 'recovered' | 'skipped'; reason: string; page?: number; feature?: string }
 export interface SearchResult { filename: string; page: number; score: number }
 export interface PageText { filename: string; page: number; text: string }
 export interface Progress { phase: string; filename?: string; page?: number; pages?: number; reason?: string; recovered?: boolean }

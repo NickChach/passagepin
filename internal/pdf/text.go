@@ -72,14 +72,16 @@ func (o *textOutput) emit(s *textState, text string, advance float64) error {
 }
 
 type interpreter struct {
-	d          *document
-	resources  dict
-	fonts      map[name]*font
-	state      textState
-	stack      []textState
-	out        *textOutput
-	forms      map[*stream]bool
-	operations *int
+	d           *document
+	resources   dict
+	fonts       map[name]*font
+	state       textState
+	stack       []textState
+	out         *textOutput
+	forms       map[*stream]bool
+	operations  *int
+	marked      []markedContent
+	replacement *replacementText
 }
 
 func (d *document) pageText(ctx context.Context, page pageInfo) (string, error) {
@@ -171,7 +173,19 @@ func (r *interpreter) show(v value) error {
 	if !r.state.inside || r.state.font == nil {
 		return fmt.Errorf("text shown without BT and a selected font")
 	}
-	text, width, spaces, glyphs, err := r.state.font.decode(raw, maxStream-r.out.text.Len())
+	var text string
+	var width float64
+	var spaces, glyphs int
+	var err error
+	if r.replacement != nil {
+		width, spaces, glyphs, err = r.state.font.measure(raw)
+		if !r.replacement.emitted {
+			text = r.replacement.text
+			r.replacement.emitted = true
+		}
+	} else {
+		text, width, spaces, glyphs, err = r.state.font.decode(raw, maxStream-r.out.text.Len())
+	}
 	if err != nil {
 		return err
 	}
@@ -208,7 +222,7 @@ func (r *interpreter) run(data []byte, depth int) error {
 			return fmt.Errorf("too many page content operations")
 		}
 		if op == "BI" {
-			return fmt.Errorf("inline images are not supported; use PDFs with image XObjects")
+			return unsupported("inline-image", "inline images are not supported; use PDFs with image XObjects")
 		}
 		if err := r.operator(op, args, depth); err != nil {
 			return fmt.Errorf("operator %s: %w", op, err)
@@ -220,6 +234,9 @@ func (r *interpreter) run(data []byte, depth int) error {
 	}
 	if len(r.stack) > 0 {
 		return fmt.Errorf("unbalanced graphics state saves")
+	}
+	if len(r.marked) > 0 {
+		return fmt.Errorf("unclosed marked-content sequence")
 	}
 	return nil
 }
@@ -245,6 +262,20 @@ func (r *interpreter) operator(op keyword, args []value, depth int) error {
 		return result, nil
 	}
 	switch op {
+	case "BMC", "BDC":
+		n := 1
+		if op == "BDC" {
+			n = 2
+		}
+		if err := count(n); err != nil {
+			return err
+		}
+		return r.beginMarked(args, op == "BDC")
+	case "EMC":
+		if err := count(0); err != nil {
+			return err
+		}
+		return r.endMarked()
 	case "BT":
 		if err := count(0); err != nil {
 			return err
@@ -478,6 +509,6 @@ func (r *interpreter) form(n name, depth int) error {
 	if err != nil {
 		return err
 	}
-	nested := &interpreter{d: r.d, resources: resources, fonts: map[name]*font{}, state: state, out: r.out, forms: r.forms, operations: r.operations}
+	nested := &interpreter{d: r.d, resources: resources, fonts: map[name]*font{}, state: state, out: r.out, forms: r.forms, operations: r.operations, replacement: r.replacement}
 	return nested.run(data, depth+1)
 }
