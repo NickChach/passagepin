@@ -1,36 +1,36 @@
 {
-  "name": "passagepin",
-  "productName": "PassagePin",
-  "version": "0.6.0",
-  "private": true,
-  "description": "Local semantic search across PDF pages",
-  "main": "build-electron/main.js",
-  "desktopName": "passagepin.desktop",
-  "scripts": {
-    "build": "tsc --noEmit && vite build && tsc -p tsconfig.electron.json",
-    "start": "npm run build && electron .",
-    "test": "node --import tsx --test tests/*.test.ts",
-    "test:e2e": "npm run build && playwright test",
-    "package:dir": "npm run build && node scripts/stage-worker.mjs && electron-builder --dir",
-    "package:linux": "npm run build && node scripts/stage-worker.mjs && electron-builder --linux AppImage && node scripts/archive.mjs"
-  },
-  "dependencies": {
-    "react": "19.3.1",
-    "react-dom": "19.3.1"
-  },
-  "devDependencies": {
-    "@playwright/test": "1.64.1",
-    "@types/node": "26.6.5",
-    "@types/react": "19.3.0",
-    "@types/react-dom": "19.3.0",
-    "@vitejs/plugin-react": "6.1.2",
-    "electron": "45.0.0",
-    "electron-builder": "26.15.3",
-    "tsx": "4.23.15",
-    "typescript": "7.0.2",
-    "vite": "8.3.5"
-  },
-  "overrides": {
-    "global-agent": "4.1.3"
-  }
+	"name": "passagepin",
+	"productName": "PassagePin",
+	"version": "0.7.0",
+	"private": true,
+	"description": "Local semantic search across PDF files",
+	"main": "build-electron/main.js",
+	"desktopName": "passagepin.desktop",
+	"scripts": {
+		"build": "tsc --noEmit && vite build && tsc -p tsconfig.electron.json",
+		"start": "npm run build && electron .",
+		"test": "node --import tsx --test tests/*.test.ts",
+		"test:e2e": "npm run build && playwright test",
+		"package:dir": "npm run build && node scripts/stage-worker.mjs && electron-builder --dir",
+		"package:linux": "npm run build && node scripts/stage-worker.mjs && electron-builder --linux AppImage && node scripts/archive.mjs"
+	},
+	"dependencies": {
+		"react": "19.3.1",
+		"react-dom": "19.3.1"
+	},
+	"devDependencies": {
+		"@playwright/test": "1.64.1",
+		"@types/node": "26.6.5",
+		"@types/react": "19.3.0",
+		"@types/react-dom": "19.3.0",
+		"@vitejs/plugin-react": "6.1.2",
+		"electron": "45.0.0",
+		"electron-builder": "26.15.3",
+		"tsx": "4.23.15",
+		"typescript": "7.0.2",
+		"vite": "8.3.5"
+	},
+	"overrides": {
+		"global-agent": "4.1.3"
+	}
 }
