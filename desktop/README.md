@@ -7,8 +7,8 @@ are not implemented or tested yet.
 
 ## Run a release
 
-For a local `0.7.0` build, use `releases/PassagePin-0.7.0-x86_64.AppImage` from a file manager, or extract
-`releases/PassagePin-0.7.0-x64.tar.gz` and open `passagepin` in the extracted
+For a local `0.8.0` build, use `releases/PassagePin-0.8.0-x86_64.AppImage` from a file manager, or extract
+`releases/PassagePin-0.8.0-x64.tar.gz` and open `passagepin` in the extracted
 folder. The AppImage requires an AppImage-capable system (commonly FUSE); the
 archive avoids that requirement. Neither needs Node, Go, model downloads or
 runtime flags. The app includes Chromium and the bundled Go worker.
@@ -199,7 +199,7 @@ alongside the new one (with `APPIMAGE_EXTRACT_AND_RUN=1` if FUSE is unavailable)
 
 ```sh
 PDFSEARCH_TEST_PREVIOUS_BINARY=/path/to/PDF-Search-0.1.0-x86_64.AppImage \
-PDFSEARCH_TEST_PACKAGED_BINARY="$PWD/releases/PassagePin-0.7.0-x86_64.AppImage" \
+PDFSEARCH_TEST_PACKAGED_BINARY="$PWD/releases/PassagePin-0.8.0-x86_64.AppImage" \
   npm run test:e2e
 ```
 

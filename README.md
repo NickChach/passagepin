@@ -20,19 +20,19 @@ Page previews show the first 200,000 bytes of extracted text, followed by a shor
 extracted page text. Open the PDF in your system viewer to read the complete page.
 
 The current desktop packages target Linux x86-64 with glibc 2.38 or newer. Download the
-[PassagePin 0.7.0 AppImage](https://github.com/NickChach/passagepin/releases/download/v0.7.0/PassagePin-0.7.0-x86_64.AppImage), or visit
+[PassagePin 0.8.0 AppImage](https://github.com/NickChach/passagepin/releases/download/v0.7.0/PassagePin-0.8.0-x86_64.AppImage), or visit
 [GitHub Releases](https://github.com/NickChach/passagepin/releases) for available versions and assets. From the directory containing the
 download:
 
 ```sh
-chmod +x PassagePin-0.7.0-x86_64.AppImage
-./PassagePin-0.7.0-x86_64.AppImage
+chmod +x PassagePin-0.8.0-x86_64.AppImage
+./PassagePin-0.8.0-x86_64.AppImage
 ```
 
 After making it executable, you can also launch it from a file manager. The AppImage requires an AppImage-capable system, commonly using
 FUSE.
 
-Local packaging of version 0.7.0 writes `PassagePin-0.7.0-x86_64.AppImage` and `PassagePin-0.7.0-x64.tar.gz` under `desktop/releases/`. The
+Local packaging of version 0.8.0 writes `PassagePin-0.8.0-x86_64.AppImage` and `PassagePin-0.8.0-x64.tar.gz` under `desktop/releases/`. The
 archive provides an alternative without the AppImage FUSE requirement: extract it and launch `linux-unpacked/passagepin`.
 
 To rebuild locally after code changes, run `./build.sh` from the repository root. It rebuilds the bundled Go worker and Electron packages
@@ -233,16 +233,16 @@ supports:
   recover missing mappings from embedded Unicode cmap formats 4/12 and CIDToGIDMap; ambiguous and private-use mappings are excluded. The
   ZapfDingbats Differences use Adobe's dingbat glyph list. Verified proprietary glyph names in MathematicalPi-Three,
   Universal-GreekwithMathPi, AdvPSSym and AdvP4C4E74 have mappings scoped to those font families.
-- Partial ToUnicode maps in simple Type 1 fonts can fall back to a supported embedded encoding. Explicit `.notdef` slots
-  produce a replacement character; unknown named glyphs still fail extraction. Redundant `ET` operators are tolerated,
-  while showing text still requires a text object and a selected font.
+- Partial ToUnicode maps in simple Type 1 fonts can fall back to a supported embedded encoding. Explicit `.notdef` slots produce a
+  replacement character; unknown named glyphs still fail extraction. Redundant `ET` operators are tolerated, while showing text still
+  requires a text object and a selected font.
 
-Glyph names are mapped using the embedded [Adobe Glyph List and ITC Zapf Dingbats Glyph List](https://github.com/adobe-type-tools/agl-aglfn),
-with their copyright and BSD license retained in `internal/pdf/glyphlist.txt` and `internal/pdf/zapfdingbats.txt`.
-Their license notice must accompany redistributed binaries as well. The parsing and
-extraction logic is written here; the glyph list supplies character-mapping data. Adobe's core font metrics are reduced to character codes,
-glyph names and widths in `internal/pdf/standard-fonts.txt`; their notices and distribution terms are retained in `THIRD_PARTY_NOTICES.md`
-and included in bundled releases.
+Glyph names are mapped using the embedded
+[Adobe Glyph List and ITC Zapf Dingbats Glyph List](https://github.com/adobe-type-tools/agl-aglfn), with their copyright and BSD license
+retained in `internal/pdf/glyphlist.txt` and `internal/pdf/zapfdingbats.txt`. Their license notice must accompany redistributed binaries as
+well. The parsing and extraction logic is written here; the glyph list supplies character-mapping data. Adobe's core font metrics are
+reduced to character codes, glyph names and widths in `internal/pdf/standard-fonts.txt`; their notices and distribution terms are retained
+in `THIRD_PARTY_NOTICES.md` and included in bundled releases.
 
 This is not a complete PDF rendering or repair engine. Unsupported features needed for extraction return an error, including encrypted
 files, inline-image filters outside the supported boundary readers, vertical or custom composite-font encodings, inherited ToUnicode CMaps,
@@ -259,8 +259,8 @@ until the reader advances to the next PDF.
 The [PDF extraction corpus](internal/pdf/testdata/corpus/README.md) contains reproducible, self-authored MIT-licensed fixtures with expected
 page text, explicit unsupported-feature outcomes, and a tracked column-order limitation. Run
 `go test -v ./internal/pdf -run TestExtractionCorpus` to check it. Index format version 8 requires rebuilding older indexes to retry pages
-previously rejected for publisher symbol mappings, undefined Type 1 glyphs or redundant end-text operators. It retains the corrected
-spacing for rotated/scaled text and exclusion of documents with unresolved cross-reference errors after recovery from version 7.
+previously rejected for publisher symbol mappings, undefined Type 1 glyphs or redundant end-text operators. It retains the corrected spacing
+for rotated/scaled text and exclusion of documents with unresolved cross-reference errors after recovery from version 7.
 
 ## Practical limits
 
