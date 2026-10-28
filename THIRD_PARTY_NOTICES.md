@@ -1,8 +1,9 @@
 # Adobe Glyph List
 
-`internal/pdf/glyphlist.txt` contains character-mapping data from
+`internal/pdf/glyphlist.txt` and `internal/pdf/zapfdingbats.txt` contain character-mapping data from
 https://github.com/adobe-type-tools/agl-aglfn/blob/master/glyphlist.txt
-and is embedded in the executable. The original notice follows.
+and https://github.com/adobe-type-tools/agl-aglfn/blob/master/zapfdingbats.txt
+and are embedded in the executable. Both files use the following notice.
 
 Copyright 2002-2019 Adobe (http://www.adobe.com/).
 

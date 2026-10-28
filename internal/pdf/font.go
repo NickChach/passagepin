@@ -371,11 +371,7 @@ func (d *document) loadFont(v value) (*font, error) {
 				if !ok {
 					return nil, fmt.Errorf("FontFile is not a stream")
 				}
-				data, err := d.decode(s)
-				if err != nil {
-					return nil, err
-				}
-				f.encoding, err = type1Encoding(data)
+				f.encoding, err = d.type1Encoding(s)
 				if err != nil {
 					return nil, err
 				}
@@ -386,6 +382,39 @@ func (d *document) loadFont(v value) (*font, error) {
 	}
 	if fd["Widths"] == nil {
 		f.useStandardWidths(enc == nil)
+	}
+	// A partial ToUnicode map can omit codes supplied by the embedded Type 1
+	// encoding, including explicitly undefined glyphs. Read it only on demand,
+	// and never replace a usable ToUnicode entry with the built-in mapping.
+	if enc == nil && f.unicode != nil && fd["FontDescriptor"] != nil {
+		defaultEncoding := f.encoding
+		f.encoding = nil
+		f.fallback = func() (map[int]string, error) {
+			desc, err := d.dictionary(fd["FontDescriptor"])
+			if err != nil {
+				return nil, err
+			}
+			encoding := defaultEncoding
+			if raw := desc["FontFile"]; raw != nil {
+				v, err := d.resolve(raw)
+				if err != nil {
+					return nil, err
+				}
+				s, ok := v.(*stream)
+				if !ok {
+					return nil, fmt.Errorf("FontFile is not a stream")
+				}
+				encoding, err = d.type1Encoding(s)
+				if err != nil {
+					return nil, err
+				}
+			}
+			result := make(map[int]string, len(encoding))
+			for code, text := range encoding {
+				result[int(code)] = text
+			}
+			return result, nil
+		}
 	}
 	if raw := fd["Widths"]; raw != nil {
 		resolved, err := d.resolve(raw)
@@ -416,6 +445,14 @@ func (d *document) loadFont(v value) (*font, error) {
 	return f, nil
 }
 
+func (d *document) type1Encoding(s *stream) (map[byte]string, error) {
+	data, err := d.decode(s)
+	if err != nil {
+		return nil, err
+	}
+	return type1Encoding(data)
+}
+
 // Type 1 font programs put their encoding in the clear-text portion before
 // eexec. Read the standard encoding or the common explicit `dup code /name put`
 // definitions; never execute the embedded PostScript program.
@@ -442,6 +479,32 @@ func type1Encoding(data []byte) (map[byte]string, error) {
 			}
 			if next == keyword("StandardEncoding") {
 				return simpleEncoding(name("StandardEncoding"))
+			}
+			if next == int64(256) {
+				arrayToken, err := p.next()
+				if err != nil || arrayToken != keyword("array") {
+					return nil, unsupported("type1-encoding", "unsupported Type 1 encoding array")
+				}
+				first, err := p.next()
+				if err != nil {
+					return nil, err
+				}
+				if first != int64(0) {
+					p.pushed = append([]value{first}, p.pushed...)
+					continue
+				}
+				// Recognize the declarative default initializer. A .notdef
+				// slot has no character identity: retain an explicit replacement
+				// marker rather than rejecting all the readable text on the page.
+				for _, want := range []value{int64(1), int64(255), keyword("{"), int64(1), keyword("index"), keyword("exch"), name(".notdef"), keyword("put"), keyword("}"), keyword("for")} {
+					got, err := p.next()
+					if err != nil || got != want {
+						return nil, unsupported("type1-encoding", "unsupported Type 1 encoding initializer")
+					}
+				}
+				for code := 0; code < 256; code++ {
+					result[byte(code)] = "\ufffd"
+				}
 			}
 			continue
 		}
@@ -473,6 +536,10 @@ func type1Encoding(data []byte) (map[byte]string, error) {
 		}
 		if text, ok := glyphUnicode(string(glyph)); ok {
 			result[byte(code)] = text
+		} else if glyph == name(".notdef") {
+			result[byte(code)] = "\ufffd"
+		} else {
+			delete(result, byte(code))
 		}
 	}
 	if !found || len(result) == 0 {
@@ -608,13 +675,7 @@ func simpleFontEncoding(v value, fontName string) (map[byte]string, error) {
 		if !ok || code < 0 || code > 255 {
 			return nil, fmt.Errorf("invalid Differences glyph")
 		}
-		text, ok := glyphUnicode(string(glyph))
-		// MathematicalPi uses proprietary names outside Adobe's glyph list.
-		// H11011 is its tilde (verified against the rendered font); scope this
-		// alias to that font family rather than interpreting arbitrary H names.
-		if !ok && baseFontName(fontName) == "MathematicalPi-Three" && glyph == name("H11011") {
-			text, ok = "~", true
-		}
+		text, ok := fontGlyphUnicode(fontName, string(glyph))
 		if ok {
 			result[byte(code)] = text
 		} else {
@@ -623,6 +684,28 @@ func simpleFontEncoding(v value, fontName string) (map[byte]string, error) {
 		code++
 	}
 	return result, nil
+}
+
+// These proprietary glyph names were checked against rendered publisher PDFs.
+// Scope each alias to its PostScript family; the names alone are ambiguous.
+var publisherGlyphAliases = map[string]map[string]string{
+	"MathematicalPi-Three":      {"H11011": "~", "H20848": "∫"},
+	"Universal-GreekwithMathPi": {"H11001": "+", "H11002": "−", "H11005": "=", "H11032": "′"},
+	"AdvPSSym":                  {"C211": "☆"},
+	"AdvP4C4E74":                {"C3": "*"},
+}
+
+func fontGlyphUnicode(fontName, glyph string) (string, bool) {
+	if text, ok := glyphUnicode(glyph); ok {
+		return text, true
+	}
+	base := baseFontName(fontName)
+	if base == "ZapfDingbats" {
+		text, ok := zapfGlyphs[strings.SplitN(glyph, ".", 2)[0]]
+		return text, ok
+	}
+	text, ok := publisherGlyphAliases[base][glyph]
+	return text, ok
 }
 
 var standardHigh = map[byte]string{161: "exclamdown", 162: "cent", 163: "sterling", 164: "fraction", 165: "yen", 166: "florin", 167: "section", 168: "currency", 169: "quotesingle", 170: "quotedblleft", 171: "guillemotleft", 172: "guilsinglleft", 173: "guilsinglright", 174: "fi", 175: "fl", 177: "endash", 178: "dagger", 179: "daggerdbl", 180: "periodcentered", 182: "paragraph", 183: "bullet", 184: "quotesinglbase", 185: "quotedblbase", 186: "quotedblright", 187: "guillemotright", 188: "ellipsis", 189: "perthousand", 191: "questiondown", 193: "grave", 194: "acute", 195: "circumflex", 196: "tilde", 197: "macron", 198: "breve", 199: "dotaccent", 200: "dieresis", 202: "ring", 203: "cedilla", 205: "hungarumlaut", 206: "ogonek", 207: "caron", 208: "emdash", 225: "AE", 227: "ordfeminine", 232: "Lslash", 233: "Oslash", 234: "OE", 235: "ordmasculine", 241: "ae", 245: "dotlessi", 248: "lslash", 249: "oslash", 250: "oe", 251: "germandbls"}

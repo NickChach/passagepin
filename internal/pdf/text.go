@@ -322,9 +322,9 @@ func (r *interpreter) operator(op keyword, args []value, depth int) error {
 		if err := count(0); err != nil {
 			return err
 		}
-		if !r.state.inside {
-			return fmt.Errorf("ET without BT")
-		}
+		// Some OCR producers emit a redundant ET after graphics state
+		// restoration. Ending an already closed text object is harmless;
+		// text-show operators still require their own BT and selected font.
 		r.state.inside = false
 	case "Tf":
 		if err := count(2); err != nil {

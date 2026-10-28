@@ -13,11 +13,19 @@ import (
 //
 //go:embed glyphlist.txt
 var adobeGlyphData string
-var adobeGlyphs = loadAdobeGlyphs()
 
-func loadAdobeGlyphs() map[string]string {
+// Adobe publishes dingbat names separately from the general glyph list.
+// These names are meaningful only in the ZapfDingbats font family.
+//
+//go:embed zapfdingbats.txt
+var zapfGlyphData string
+
+var adobeGlyphs = loadGlyphList(adobeGlyphData)
+var zapfGlyphs = loadGlyphList(zapfGlyphData)
+
+func loadGlyphList(data string) map[string]string {
 	result := make(map[string]string)
-	for _, line := range strings.Split(adobeGlyphData, "\n") {
+	for _, line := range strings.Split(data, "\n") {
 		if strings.HasPrefix(line, "#") {
 			continue
 		}

@@ -29,7 +29,13 @@ Healthy files with these supported normal-reading features still use normal
 parsing. Recovery can fix structural bookkeeping without resolving unrelated
 font, content-stream or text-extraction limitations.
 
-Index format version 7 requires rebuilding older indexes to apply corrected
+Index format version 8 requires rebuilding older indexes to retry pages rejected
+for missing publisher symbol mappings, explicitly undefined Type 1 glyphs and
+redundant `ET` operators. Verified proprietary glyph aliases are scoped to their
+font families, and ZapfDingbats uses Adobe's separate glyph list. A partial
+ToUnicode map can fall back to the supported embedded Type 1 encoding; explicit
+`.notdef` slots produce U+FFFD without guessing a character. Unknown named glyphs
+still fail extraction. Version 7 applied corrected
 spacing for transformed text and exclude whole documents when cross-reference
 errors persist after a recovery retry. Version 6 added font/inline-image fixes
 and partial indexing; version 5 added marked-content `ActualText` support and

@@ -231,10 +231,15 @@ supports:
 - Simple fonts retain one-byte character codes even when their ToUnicode codespace incorrectly declares two bytes. Unicode maps take
   precedence over encoding fallback. Fonts selected without showing text do not need a usable Unicode map. Identity-H TrueType CID fonts can
   recover missing mappings from embedded Unicode cmap formats 4/12 and CIDToGIDMap; ambiguous and private-use mappings are excluded. The
-  MathematicalPi-Three `H11011` glyph has a font-specific tilde mapping.
+  ZapfDingbats Differences use Adobe's dingbat glyph list. Verified proprietary glyph names in MathematicalPi-Three,
+  Universal-GreekwithMathPi, AdvPSSym and AdvP4C4E74 have mappings scoped to those font families.
+- Partial ToUnicode maps in simple Type 1 fonts can fall back to a supported embedded encoding. Explicit `.notdef` slots
+  produce a replacement character; unknown named glyphs still fail extraction. Redundant `ET` operators are tolerated,
+  while showing text still requires a text object and a selected font.
 
-Glyph names are mapped using the embedded [Adobe Glyph List](https://github.com/adobe-type-tools/agl-aglfn), with its copyright and BSD
-license retained in `internal/pdf/glyphlist.txt`. Its license notice must accompany redistributed binaries as well. The parsing and
+Glyph names are mapped using the embedded [Adobe Glyph List and ITC Zapf Dingbats Glyph List](https://github.com/adobe-type-tools/agl-aglfn),
+with their copyright and BSD license retained in `internal/pdf/glyphlist.txt` and `internal/pdf/zapfdingbats.txt`.
+Their license notice must accompany redistributed binaries as well. The parsing and
 extraction logic is written here; the glyph list supplies character-mapping data. Adobe's core font metrics are reduced to character codes,
 glyph names and widths in `internal/pdf/standard-fonts.txt`; their notices and distribution terms are retained in `THIRD_PARTY_NOTICES.md`
 and included in bundled releases.
@@ -253,8 +258,9 @@ until the reader advances to the next PDF.
 
 The [PDF extraction corpus](internal/pdf/testdata/corpus/README.md) contains reproducible, self-authored MIT-licensed fixtures with expected
 page text, explicit unsupported-feature outcomes, and a tracked column-order limitation. Run
-`go test -v ./internal/pdf -run TestExtractionCorpus` to check it. Index format version 7 requires rebuilding older indexes so cached
-vectors use corrected spacing for rotated/scaled text and exclude documents with unresolved cross-reference errors after recovery.
+`go test -v ./internal/pdf -run TestExtractionCorpus` to check it. Index format version 8 requires rebuilding older indexes to retry pages
+previously rejected for publisher symbol mappings, undefined Type 1 glyphs or redundant end-text operators. It retains the corrected
+spacing for rotated/scaled text and exclusion of documents with unresolved cross-reference errors after recovery from version 7.
 
 ## Practical limits
 
