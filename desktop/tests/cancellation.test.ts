@@ -46,8 +46,13 @@ test('page cancellation keeps targeting the page until its final reply', async (
   await Promise.resolve();
   const nextTarget = requests[3].id;
   assert.notEqual(nextTarget, target);
-  reply({ id: nextTarget, result: { text: 'second page' } });
-  assert.deepEqual(await nextPage, { text: 'second page' });
+  reply({ id: nextTarget, result: { filename: 'example.pdf', page: 2, text: 'second page', path: '/library/example.pdf' } });
+  assert.deepEqual(await nextPage, { filename: 'example.pdf', page: 2, text: 'second page', path: '/library/example.pdf' });
   await client.cancel();
   assert.equal(requests.length, 4, 'successful pages must clear the cancellation target');
+  const malformed = client.request('page', { filename: 'example.pdf', page: 3 });
+  const rejected = assert.rejects(malformed, /Invalid search engine response/);
+  await Promise.resolve();
+  reply({ id: requests[4].id, result: { text: 'incomplete response' } });
+  await rejected;
 });

@@ -209,3 +209,17 @@ The compatibility check creates an index and dark-mode preference in the old
 app, then verifies that PassagePin restores the library and theme, offers to
 rebuild the incompatible index, and can search it after rebuilding. The regular
 Electron suite also exercises this flow using a simulated older index version.
+
+### Workflow boundaries
+
+`electron/main.ts` owns Electron lifecycle, dialogs and trusted IPC handlers.
+`electron/desktop-session.ts` coordinates worker operations and library selection,
+including rollback when saving selection fails. Its worker and library registry
+are injected so these transitions can be tested without launching Electron.
+
+The renderer composes views in `src/App.tsx`; `use-workspace.ts` coordinates UI
+actions, `use-desktop-state.ts` subscribes to worker state and indexing progress,
+and `use-search-session.ts` owns results, selection and extracted-page previews.
+Opening the system viewer uses the worker's `resolve-pdf` operation and does not
+re-extract text. These refactors retain the version-8 index and model fingerprint;
+existing compatible indexes do not need rebuilding.

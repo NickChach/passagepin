@@ -71,7 +71,7 @@ func BuildConcurrent(ctx context.Context, root, fingerprint string, recursive bo
 		}
 		extractors = append(extractors, extractor)
 	}
-	return buildPipeline(ctx, root, fingerprint, recursive, old, extractors, embedder, progress, emit, options.EmbeddingWorkers)
+	return buildPipeline(ctx, root, fingerprint, recursive, old, extractors, embedder, &progressReporter{output: progress, emit: emit}, options.EmbeddingWorkers)
 }
 
 type pageJob struct {
@@ -117,25 +117,10 @@ func recoveryInfo(extractor Extractor) string {
 	return ""
 }
 
-func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool, old *Index, extractors []Extractor, embedder Embedder, progress io.Writer, emit func(Progress), embeddingWorkers int) (*Index, Stats, error) {
+func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool, old *Index, extractors []Extractor, embedder Embedder, report buildObserver, embeddingWorkers int) (*Index, Stats, error) {
 	started := time.Now()
 	var stats Stats
-	var outputMu sync.Mutex
-	notify := func(p Progress) {
-		outputMu.Lock()
-		defer outputMu.Unlock()
-		if emit != nil {
-			emit(p)
-		}
-		if progress != nil {
-			switch p.Phase {
-			case "reused":
-				fmt.Fprintf(progress, "Unchanged: %s\n", p.Filename)
-			case "embedding":
-				fmt.Fprintf(progress, "Indexing: %s page %d/%d\n", p.Filename, p.Page, p.Pages)
-			}
-		}
-	}
+	notify := report.event
 	notify(Progress{Phase: "discovering"})
 	if err := ctx.Err(); err != nil {
 		return nil, stats, err
@@ -217,15 +202,7 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 			issue.Feature = failures[0].Feature
 		}
 		notify(Progress{Phase: "skipped", Filename: filename, Page: page, Reason: issue.Reason})
-		if progress != nil {
-			outputMu.Lock()
-			fmt.Fprintf(progress, "Skipped: %s", filename)
-			if page > 0 {
-				fmt.Fprintf(progress, " (page %d)", page)
-			}
-			fmt.Fprintf(progress, ": %s; no pages from this PDF were indexed\n", issue.Reason)
-			outputMu.Unlock()
-		}
+		report.issue(issue)
 		select {
 		case documents <- documentResult{skipped: &issue}:
 		case <-ctx.Done():
@@ -312,11 +289,7 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 		idx.Documents = append(idx.Documents, result.doc)
 		if len(result.doc.Failures) > 0 {
 			idx.Issues = append(idx.Issues, FileIssue{Filename: result.doc.Filename, Kind: "partial", Reason: fmt.Sprintf("%d pages failed extraction", len(result.doc.Failures)), Page: result.doc.Failures[0].Page, IndexedPages: len(result.doc.Pages), Failures: result.doc.Failures})
-			if progress != nil {
-				outputMu.Lock()
-				fmt.Fprintf(progress, "Partially indexed: %s; %d searchable pages; %d pages failed extraction\n", result.doc.Filename, len(result.doc.Pages), len(result.doc.Failures))
-				outputMu.Unlock()
-			}
+			report.issue(idx.Issues[len(idx.Issues)-1])
 		}
 		if result.doc.Recovery != "" {
 			idx.Issues = append(idx.Issues, FileIssue{Filename: result.doc.Filename, Kind: "recovered", Reason: issueReason(fmt.Errorf("%s", result.doc.Recovery))})

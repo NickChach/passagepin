@@ -1,11 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams, type SpawnOptionsWithoutStdio } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { EventEmitter } from 'node:events';
-import { parseProgress } from './worker-protocol';
+import { parseProgress, parseWorkerResult } from './worker-protocol';
 import type { WorkerReady, WorkerMethods } from './types';
 
 interface Reply { id?: string; event?: string; data?: unknown; result?: unknown; error?: { code: string; message: string } }
-interface Pending { resolve(value: unknown): void; reject(error: Error): void }
+interface Pending { method: keyof WorkerMethods; resolve(value: unknown): void; reject(error: Error): void }
 type WorkerLauncher = (binary: string, args: string[], options: SpawnOptionsWithoutStdio) => ChildProcessWithoutNullStreams;
 
 export class WorkerError extends Error {
@@ -48,11 +48,13 @@ export class WorkerClient extends EventEmitter {
           if (!message.id) return;
           const pending = this.pending.get(message.id);
           if (!pending) return;
+          const result = message.error ? undefined : parseWorkerResult(pending.method, message.result);
+          if (message.error && (typeof message.error.code !== 'string' || typeof message.error.message !== 'string')) throw new Error('Invalid search engine error.');
           this.pending.delete(message.id);
           if (this.activeID === message.id) this.activeID = null;
           if (message.error) pending.reject(new WorkerError(message.error.message, message.error.code));
-          else pending.resolve(message.result);
-        } catch (error) { child.kill(); this.fail(error instanceof Error ? error : new Error(String(error))); }
+          else pending.resolve(result);
+        } catch (error) { this.fail(error instanceof Error ? error : new Error(String(error))); child.kill(); }
       });
       child.once('error', (error) => { clearTimeout(timer); reject(error); this.fail(error); });
       child.once('exit', (code, signal) => {
@@ -74,8 +76,8 @@ export class WorkerClient extends EventEmitter {
     const id = String(++this.sequence);
     const params = args[0] ?? {};
     return new Promise<WorkerMethods[M]['result']>((resolve, reject) => {
-      this.pending.set(id, { resolve: (value) => resolve(value as WorkerMethods[M]['result']), reject });
-      if (method === 'index' || method === 'search' || method === 'page') this.activeID = id;
+      this.pending.set(id, { method, resolve: (value) => resolve(value as WorkerMethods[M]['result']), reject });
+      if (method === 'index' || method === 'search' || method === 'page' || method === 'resolve-pdf') this.activeID = id;
       child.stdin.write(JSON.stringify({ id, method, params }) + '\n', (error) => {
         if (error) { this.pending.delete(id); if (this.activeID === id) this.activeID = null; reject(error); }
       });

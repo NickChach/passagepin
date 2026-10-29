@@ -3,7 +3,6 @@ package worker
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,6 +19,7 @@ type Model interface {
 	Embed(context.Context, string) ([]float32, error)
 }
 
+// Engine operations must be serialized by the caller. Serve owns that guard.
 type Engine struct {
 	model                Model
 	fingerprint          string
@@ -61,160 +61,182 @@ func (e *Engine) summary() Library {
 	return l
 }
 
-func decode(raw json.RawMessage, v any) error {
-	if len(raw) == 0 {
-		raw = json.RawMessage("{}")
-	}
-	return json.Unmarshal(raw, v)
+type IndexResult struct {
+	Library Library     `json:"library"`
+	Stats   index.Stats `json:"stats"`
+}
+type SearchResponse struct {
+	Results []index.Result `json:"results"`
+	Query   string         `json:"query"`
+}
+type PageText struct {
+	Filename string `json:"filename"`
+	Page     int    `json:"page"`
+	Text     string `json:"text"`
+	Path     string `json:"path"`
+}
+type PDFLocation struct {
+	Path string `json:"path"`
 }
 
-func (e *Engine) Handle(ctx context.Context, req Request, emit func(index.Progress)) (any, error) {
+// ResolvePDF authorizes a file without decoding its contents. Paths are returned
+// only to the desktop main process; the renderer never receives them.
+func (e *Engine) ResolvePDF(ctx context.Context, p PageParams) (PDFLocation, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return PDFLocation{}, err
 	}
-	switch req.Method {
-	case "status":
-		return e.summary(), nil
-	case "open":
-		var p struct {
-			Directory string `json:"directory"`
-			IndexPath string `json:"index_path"`
-		}
-		if err := decode(req.Params, &p); err != nil {
-			return nil, err
-		}
-		if p.Directory == "" || p.IndexPath == "" {
-			return nil, fmt.Errorf("directory and index_path are required")
-		}
-		root, err := filepath.Abs(p.Directory)
-		if err != nil {
-			return nil, err
-		}
-		root, err = filepath.EvalSymlinks(root)
-		if err != nil {
-			return nil, err
-		}
-		info, err := os.Stat(root)
-		if err != nil {
-			return nil, err
-		}
-		if !info.IsDir() {
-			return nil, fmt.Errorf("select a directory of PDFs")
-		}
-		e.directory, e.indexPath, e.idx, e.issue = root, p.IndexPath, nil, ""
-		idx, err := index.Load(p.IndexPath)
-		if errors.Is(err, os.ErrNotExist) {
-			return e.summary(), nil
-		}
-		if err != nil {
-			e.issue = err.Error()
-			return e.summary(), nil
-		}
-		if idx.Root != root || idx.Fingerprint != e.fingerprint {
-			e.issue = "The saved index uses another directory or model. Rebuild this index."
-			return e.summary(), nil
-		}
-		e.idx = idx
-		return e.summary(), nil
-	case "index":
-		if e.directory == "" {
-			return nil, fmt.Errorf("choose a folder first")
-		}
-		var p struct {
-			Rebuild bool `json:"rebuild"`
-		}
-		if err := decode(req.Params, &p); err != nil {
-			return nil, err
-		}
-		if e.issue != "" && !p.Rebuild {
-			return nil, fmt.Errorf("rebuild the incompatible index")
-		}
-		old := e.idx
-		if p.Rebuild {
-			old = nil
-		}
-		idx, stats, err := index.BuildConcurrent(ctx, e.directory, e.fingerprint, true, old, func() (index.Extractor, error) { return pdf.New() }, e.model, io.Discard, emit, e.indexOptions)
-		if err != nil {
-			return nil, err
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		saving := time.Now()
-		if err := idx.Save(e.indexPath); err != nil {
-			return nil, err
-		}
-		stats.Timings.Saving = time.Since(saving)
-		e.idx, e.issue = idx, ""
-		return struct {
-			Library Library     `json:"library"`
-			Stats   index.Stats `json:"stats"`
-		}{e.summary(), stats}, nil
-	case "search":
-		if e.idx == nil {
-			return nil, fmt.Errorf("index this folder before searching")
-		}
-		var p struct {
-			Query    string  `json:"query"`
-			Top      int     `json:"top"`
-			MinScore float64 `json:"min_score"`
-		}
-		if err := decode(req.Params, &p); err != nil {
-			return nil, err
-		}
-		p.Query = strings.TrimSpace(p.Query)
-		if p.Query == "" || len(p.Query) > 16000 {
-			return nil, fmt.Errorf("enter a subject of up to 16,000 bytes")
-		}
-		if p.Top == 0 {
-			p.Top = 20
-		}
-		if p.Top < 1 || p.Top > 500 {
-			return nil, fmt.Errorf("top must be between 1 and 500")
-		}
-		vector, err := e.model.Embed(ctx, p.Query)
-		if err != nil {
-			return nil, err
-		}
-		results, err := e.idx.SearchContext(ctx, vector, p.Top, p.MinScore)
-		if err != nil {
-			return nil, err
-		}
-		return struct {
-			Results []index.Result `json:"results"`
-			Query   string         `json:"query"`
-		}{results, p.Query}, nil
-	case "page":
-		var p struct {
-			Filename string `json:"filename"`
-			Page     int    `json:"page"`
-		}
-		if err := decode(req.Params, &p); err != nil {
-			return nil, err
-		}
-		path, err := e.pagePath(p.Filename, p.Page)
-		if err != nil {
-			return nil, err
-		}
-		extractor, _ := pdf.New()
-		defer extractor.Close()
-		text, err := extractor.PageText(ctx, path, p.Page)
-		if err != nil {
-			return nil, err
-		}
-		// Keep IPC previews bounded; indexing still embeds the entire page.
-		if len(text) > 200000 {
-			text = text[:200000] + "\n\n[Preview shortened. Open the PDF to read the full page.]"
-		}
-		return struct {
-			Filename string `json:"filename"`
-			Page     int    `json:"page"`
-			Text     string `json:"text"`
-			Path     string `json:"path"`
-		}{p.Filename, p.Page, text, path}, nil
-	default:
-		return nil, fmt.Errorf("unknown worker method %q", req.Method)
+	path, err := e.pagePath(p.Filename, p.Page)
+	if err != nil {
+		return PDFLocation{}, err
 	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return PDFLocation{}, err
+	}
+	if !info.Mode().IsRegular() {
+		return PDFLocation{}, fmt.Errorf("PDF is not a regular file")
+	}
+	return PDFLocation{Path: path}, nil
+}
+
+type OpenParams struct {
+	Directory string `json:"directory"`
+	IndexPath string `json:"index_path"`
+}
+
+func (e *Engine) Open(ctx context.Context, p OpenParams) (Library, error) {
+	if err := ctx.Err(); err != nil {
+		return Library{}, err
+	}
+	if p.Directory == "" || p.IndexPath == "" {
+		return Library{}, fmt.Errorf("directory and index_path are required")
+	}
+	root, err := filepath.Abs(p.Directory)
+	if err != nil {
+		return Library{}, err
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return Library{}, err
+	}
+	info, err := os.Stat(root)
+	if err != nil {
+		return Library{}, err
+	}
+	if !info.IsDir() {
+		return Library{}, fmt.Errorf("select a directory of PDFs")
+	}
+	e.directory, e.indexPath, e.idx, e.issue = root, p.IndexPath, nil, ""
+	idx, err := index.Load(p.IndexPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return e.summary(), nil
+	}
+	if err != nil {
+		e.issue = err.Error()
+		return e.summary(), nil
+	}
+	if idx.Root != root || idx.Fingerprint != e.fingerprint {
+		e.issue = "The saved index uses another directory or model. Rebuild this index."
+		return e.summary(), nil
+	}
+	e.idx = idx
+	return e.summary(), nil
+}
+
+type IndexParams struct {
+	Rebuild bool `json:"rebuild"`
+}
+
+func (e *Engine) BuildIndex(ctx context.Context, p IndexParams, emit func(index.Progress)) (IndexResult, error) {
+	if err := ctx.Err(); err != nil {
+		return IndexResult{}, err
+	}
+	if e.directory == "" {
+		return IndexResult{}, fmt.Errorf("choose a folder first")
+	}
+
+	if e.issue != "" && !p.Rebuild {
+		return IndexResult{}, fmt.Errorf("rebuild the incompatible index")
+	}
+	old := e.idx
+	if p.Rebuild {
+		old = nil
+	}
+	idx, stats, err := index.BuildConcurrent(ctx, e.directory, e.fingerprint, true, old, func() (index.Extractor, error) { return pdf.New() }, e.model, io.Discard, emit, e.indexOptions)
+	if err != nil {
+		return IndexResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return IndexResult{}, err
+	}
+	saving := time.Now()
+	if err := idx.Save(e.indexPath); err != nil {
+		return IndexResult{}, err
+	}
+	stats.Timings.Saving = time.Since(saving)
+	e.idx, e.issue = idx, ""
+	return IndexResult{e.summary(), stats}, nil
+}
+
+type SearchParams struct {
+	Query    string  `json:"query"`
+	Top      int     `json:"top"`
+	MinScore float64 `json:"min_score"`
+}
+
+func (e *Engine) Search(ctx context.Context, p SearchParams) (SearchResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return SearchResponse{}, err
+	}
+	if e.idx == nil {
+		return SearchResponse{}, fmt.Errorf("index this folder before searching")
+	}
+
+	p.Query = strings.TrimSpace(p.Query)
+	if p.Query == "" || len(p.Query) > 16000 {
+		return SearchResponse{}, fmt.Errorf("enter a subject of up to 16,000 bytes")
+	}
+	if p.Top == 0 {
+		p.Top = 20
+	}
+	if p.Top < 1 || p.Top > 500 {
+		return SearchResponse{}, fmt.Errorf("top must be between 1 and 500")
+	}
+	vector, err := e.model.Embed(ctx, p.Query)
+	if err != nil {
+		return SearchResponse{}, err
+	}
+	results, err := e.idx.SearchContext(ctx, vector, p.Top, p.MinScore)
+	if err != nil {
+		return SearchResponse{}, err
+	}
+	return SearchResponse{results, p.Query}, nil
+}
+
+type PageParams struct {
+	Filename string `json:"filename"`
+	Page     int    `json:"page"`
+}
+
+func (e *Engine) Page(ctx context.Context, p PageParams) (PageText, error) {
+	if err := ctx.Err(); err != nil {
+		return PageText{}, err
+	}
+	path, err := e.pagePath(p.Filename, p.Page)
+	if err != nil {
+		return PageText{}, err
+	}
+	extractor, _ := pdf.New()
+	defer extractor.Close()
+	text, err := extractor.PageText(ctx, path, p.Page)
+	if err != nil {
+		return PageText{}, err
+	}
+	// Keep IPC previews bounded; indexing still embeds the entire page.
+	if len(text) > 200000 {
+		text = text[:200000] + "\n\n[Preview shortened. Open the PDF to read the full page.]"
+	}
+	return PageText{p.Filename, p.Page, text, path}, nil
 }
 
 func (e *Engine) pagePath(filename string, page int) (string, error) {

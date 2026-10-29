@@ -60,11 +60,20 @@ type FileIssue struct {
 	Failures     []PageFailure `json:"failures,omitempty"`
 }
 
+// Extractor is owned by one reader and used sequentially. PageCount starts a
+// fresh document pass; PageText uses physical page numbers. Implementations must
+// preserve cancellation and resource errors, and wrap unsafe document-wide
+// failures in pdf.DocumentError. RecoveryInfo() string is an optional diagnostic
+// capability. BuildConcurrent closes owned extractors that implement io.Closer;
+// Build and BuildWithProgress borrow the extractor and leave closing to callers.
 type Extractor interface {
 	PageCount(context.Context, string) (int, error)
 	PageText(context.Context, string, int) (string, error)
 }
 
+// Embedder returns finite, normalized 384-dimensional MiniLM vectors. Empty
+// normalized input returns embedding.ErrNoTokens (possibly wrapped); other
+// failures abort indexing. Concurrent builds require concurrency-safe Embed.
 type Embedder interface {
 	Embed(context.Context, string) ([]float32, error)
 }
@@ -268,7 +277,7 @@ func Build(ctx context.Context, root, fingerprint string, recursive bool, old *I
 
 // BuildWithProgress supplies structured events to a GUI without parsing logs.
 func BuildWithProgress(ctx context.Context, root, fingerprint string, recursive bool, old *Index, extractor Extractor, embedder Embedder, progress io.Writer, emit func(Progress)) (*Index, Stats, error) {
-	return buildPipeline(ctx, root, fingerprint, recursive, old, []Extractor{extractor}, embedder, progress, emit, 1)
+	return buildPipeline(ctx, root, fingerprint, recursive, old, []Extractor{extractor}, embedder, &progressReporter{output: progress, emit: emit}, 1)
 }
 
 type Result struct {

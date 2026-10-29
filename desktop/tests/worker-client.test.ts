@@ -34,6 +34,7 @@ test('real Go worker keeps one process and model for indexing and repeated searc
   }
   const page = await client.request('page', { filename: 'Energy and bread.pdf', page: 3 });
   assert.match(page.text, /Photovoltaic/);
+  assert.deepEqual(await client.request('resolve-pdf', { filename: 'Energy and bread.pdf', page: 3 }), { path: page.path });
   assert.equal(page.path, path.join(root, 'Energy and bread.pdf'));
   const status = await client.request('status');
   assert.deepEqual(status, indexed.library);

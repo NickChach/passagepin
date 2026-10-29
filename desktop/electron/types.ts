@@ -59,6 +59,7 @@ export interface WorkerMethods {
   status: { params: Record<string, never>; result: Library };
   index: { params: { rebuild?: boolean }; result: IndexResult };
   search: { params: { query: string; top?: number; min_score?: number }; result: SearchResponse };
+  'resolve-pdf': { params: { filename: string; page: number }; result: { path: string } };
   page: { params: { filename: string; page: number }; result: PageText & { path: string } };
   cancel: { params: { target: string }; result: { cancelled: boolean } };
   shutdown: { params: Record<string, never>; result: { stopped: boolean } };

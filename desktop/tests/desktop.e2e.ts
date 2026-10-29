@@ -50,7 +50,7 @@ test('Electron searches with one resident worker and remembers the selected them
     await expect(page.getByText('For “generating electricity from sunlight”')).toBeVisible();
     await expect(page.getByText(/Photovoltaic panels and wind turbines/)).toBeVisible();
     expect((await readState(page)).ready!.pid).toBe(pid);
-    // Hold the worker page lookup while keeping the real Open PDF IPC handler.
+    // Hold the worker file lookup while keeping the real Open PDF IPC handler.
     // This makes the transient operation visible long enough to check layout.
     await application.evaluate(({ app, shell }) => {
       const load = process.getBuiltinModule('module').createRequire(app.getAppPath() + '/build-electron/main.js');
@@ -60,7 +60,7 @@ test('Electron searches with one resident worker and remembers the selected them
       const held = new Promise<void>((resolve) => { release = resolve; });
       WorkerClient.prototype.request = function(method, ...args) {
         const request = () => Reflect.apply(original, this, [method, ...args]);
-        return method === 'page' ? held.then(request) : request();
+        return method === 'resolve-pdf' ? held.then(request) : request();
       };
       const opened: string[] = [];
       shell.openPath = async (filename) => { opened.push(filename); return ''; };

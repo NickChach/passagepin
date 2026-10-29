@@ -116,3 +116,18 @@ The desktop IPC bridge wraps handler replies in `{ok: true, value}` or
 contextBridge as data. The renderer unwraps it locally, so cancellation uses the
 `cancelled` code rather than diagnostic text or filenames. This desktop envelope
 does not change the worker's JSON-lines protocol above.
+
+## Resolving a file for the system viewer
+
+The additive `resolve-pdf` method accepts the same `filename` and physical `page`
+parameters as `page`, and returns `{ "path": "/absolute/library/file.pdf" }`.
+It checks active-index membership, page range, resolved path containment, and
+that the target is a regular file, without extracting page text. The desktop
+main process uses this path to open the system viewer; paths are not forwarded
+to the renderer. A failed preview therefore does not prevent opening the PDF.
+Use the worker bundled with the desktop release; older version-1 workers may
+not implement this additive method. Rebuilding the desktop after Go changes
+requires rebuilding the worker as well.
+
+The Go JSON dispatcher delegates to typed engine operations. The desktop client
+validates method results and progress before delivering them to callers.
