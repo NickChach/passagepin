@@ -20,15 +20,16 @@ type pageInfo struct {
 	identity  reference
 }
 type document struct {
-	file       *os.File
-	size       int64
-	ctx        context.Context
-	xref       map[int64]xrefEntry
-	cache      map[reference]value
-	active     map[reference]bool
-	pages      []pageInfo
-	recovery   string
-	recovering bool
+	file         *os.File
+	size         int64
+	ctx          context.Context
+	xref         map[int64]xrefEntry
+	cache        map[reference]value
+	objectStream *objectStreamCache
+	active       map[reference]bool
+	pages        []pageInfo
+	recovery     string
+	recovering   bool
 }
 
 func openDocument(ctx context.Context, f *os.File) (*document, error) {
@@ -269,40 +270,7 @@ func (d *document) resolveObject(ref reference) (value, error) {
 	if !ok || !okFirst || n < 1 || n > maxObjects || entry.index < 0 || entry.index >= n {
 		return nil, fmt.Errorf("invalid object stream header")
 	}
-	data, err := d.decode(s)
-	if err != nil {
-		return nil, err
-	}
-	if first < 0 || first > int64(len(data)) {
-		return nil, fmt.Errorf("invalid object stream offset")
-	}
-	p := newSyntax(bytes.NewReader(data[:first]), 0)
-	var position int64
-	for i := int64(0); i <= entry.index; i++ {
-		id, err := p.next()
-		if err != nil {
-			return nil, err
-		}
-		off, err := p.next()
-		if err != nil {
-			return nil, err
-		}
-		object, ok := integer(id)
-		o, okOff := integer(off)
-		if !ok || !okOff || o < 0 {
-			return nil, fmt.Errorf("invalid object stream index")
-		}
-		if i == entry.index {
-			if object != ref.number {
-				return nil, fmt.Errorf("wrong object stream member")
-			}
-			position = o
-		}
-	}
-	if position >= int64(len(data))-first {
-		return nil, fmt.Errorf("object stream member out of range")
-	}
-	return newSyntax(bytes.NewReader(data[first+position:]), 0).value(0)
+	return d.objectStreamMember(s, n, first, entry.index, ref.number)
 }
 func (d *document) dictionary(v value) (dict, error) {
 	v, err := d.resolve(v)

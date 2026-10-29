@@ -175,11 +175,16 @@ func (p *syntax) next() (value, error) {
 		return name(out), nil
 	}
 	s := string(raw)
-	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
-		return n, nil
-	}
-	if n, err := strconv.ParseFloat(s, 64); err == nil && !math.IsNaN(n) && !math.IsInf(n, 0) {
-		return n, nil
+	// Keywords cannot be finite numbers. Avoid allocating conversion errors for
+	// every content operator and cross-reference flag. Keep the existing numeric
+	// conversions for tokens that can start a number, including signed values.
+	if s[0] == '+' || s[0] == '-' || s[0] == '.' || s[0] >= '0' && s[0] <= '9' {
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return n, nil
+		}
+		if n, err := strconv.ParseFloat(s, 64); err == nil && !math.IsNaN(n) && !math.IsInf(n, 0) {
+			return n, nil
+		}
 	}
 	switch s {
 	case "true":

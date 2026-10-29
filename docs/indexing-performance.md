@@ -25,6 +25,15 @@ PDF's work and produce a skipped-file report while other readers continue.
 Fatal errors or cancellation stop the pipeline, drain outstanding jobs, close
 readers, and leave the previous saved and in-memory index available.
 
+The PDF parser skips numeric conversions for keywords and reuses the most recent
+decoded object stream and its parsed header within each open document. This
+cache accepts streams with at most 4 MiB of decoded data and 4,096 members;
+larger streams use the ordinary uncached path. Header entries are parsed only
+through the requested member, preserving errors for malformed data without
+rejecting earlier valid members because of an unused malformed suffix. Closing
+or recovering a document releases its cache. These parser optimizations preserve
+extracted text and index format 8; existing format-8 indexes need no rebuild.
+
 ## Measure a library
 
 ```sh

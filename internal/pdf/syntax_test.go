@@ -4,6 +4,10 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"math"
+	"reflect"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -71,6 +75,43 @@ func FuzzPDFSyntax(f *testing.F) {
 			if err == io.EOF || err != nil {
 				return
 			}
+		}
+	})
+}
+
+// Compare keyword/number classification with the original conversion order,
+// including overflow and nonfinite spellings that must remain keywords.
+func FuzzPDFTokenClassification(f *testing.F) {
+	for _, token := range []string{"BT", "n", "false", "true", "null", "NaN", "Inf", "Infinity", "+Inf", "-Inf", "42", "-3", "+.5", ".25", "1e2", "1e999", "9223372036854775808", "0x1p2", "+", "."} {
+		f.Add(token)
+	}
+	f.Fuzz(func(t *testing.T, token string) {
+		if token == "" || len(token) > 1024 {
+			t.Skip()
+		}
+		for i := 0; i < len(token); i++ {
+			if delimiter(token[i]) {
+				t.Skip()
+			}
+		}
+		var want value = keyword(token)
+		if n, err := strconv.ParseInt(token, 10, 64); err == nil {
+			want = n
+		} else if n, err := strconv.ParseFloat(token, 64); err == nil && !math.IsNaN(n) && !math.IsInf(n, 0) {
+			want = n
+		} else {
+			switch token {
+			case "true":
+				want = true
+			case "false":
+				want = false
+			case "null":
+				want = nil
+			}
+		}
+		got, err := newSyntax(strings.NewReader(token), 0).next()
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("%q: got %T(%v), %v; want %T(%v)", token, got, got, err, want, want)
 		}
 	})
 }
