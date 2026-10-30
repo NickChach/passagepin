@@ -47,6 +47,16 @@ func TestCorpusIndexReportsAndReplacementText(t *testing.T) {
 	if _, ok := embedded.Load("office work"); !ok {
 		t.Fatal("replacement text did not reach the embedder")
 	}
+	wantHashes := map[string][]string{
+		"actualtext-inline.pdf": {testDigest("office work")},
+		"image-only.pdf":        {testDigest("")},
+		"late-page-failure.pdf": {testDigest("healthy first page"), ""},
+	}
+	for _, doc := range idx.Documents {
+		if !reflect.DeepEqual(doc.PageTextSHA256, wantHashes[doc.Filename]) {
+			t.Fatalf("%s: unexpected page text hashes %v", doc.Filename, doc.PageTextSHA256)
+		}
+	}
 	for _, issue := range idx.Issues {
 		wantPage, wantFeature := 1, "tounicode-inheritance"
 		wantKind := "skipped"
@@ -56,6 +66,12 @@ func TestCorpusIndexReportsAndReplacementText(t *testing.T) {
 		}
 		if issue.Kind != wantKind || issue.Page != wantPage || len(issue.Failures) != 1 || issue.Failures[0].Feature != wantFeature {
 			t.Fatalf("wrong report scope/feature: %+v", issue)
+		}
+		if issue.Kind == "skipped" {
+			data, err := os.ReadFile(filepath.Join(root, issue.Filename))
+			if err != nil || issue.SHA256 != testDigest(string(data)) {
+				t.Fatalf("skipped PDF hash: %+v, %v", issue, err)
+			}
 		}
 	}
 	if !strings.Contains(log.String(), "Partially indexed: late-page-failure.pdf; 1 searchable pages; 1 pages failed extraction") || !strings.Contains(log.String(), "no pages from this PDF were indexed") {
@@ -302,6 +318,11 @@ func TestExternalLibraryPartialIndexing(t *testing.T) {
 	idx, stats, err := BuildConcurrent(ctx, root, "extraction-test", true, nil, func() (Extractor, error) { return pdf.New() }, model, io.Discard, nil, Options{2, 2})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for _, doc := range idx.Documents {
+		if len(doc.PageTextSHA256) != doc.PageCount {
+			t.Fatalf("%s: missing physical-page text hashes", doc.Filename)
+		}
 	}
 	if err := idx.Save(filepath.Join(t.TempDir(), "index.json")); err != nil {
 		t.Fatal(err)

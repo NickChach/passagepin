@@ -2,6 +2,8 @@ package index
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -21,12 +23,13 @@ type documentWorker struct {
 	cache      map[string]Document
 	extractor  Extractor
 	hash       func(string) (string, error)
+	hashing    *atomic.Int64
 	extraction *atomic.Int64
 	pages      chan<- pageJob
 	documents  chan<- documentResult
 	notify     func(Progress)
 	fail       func(error)
-	skip       func(string, int, error, ...PageFailure)
+	skip       func(string, int, error, string, ...PageFailure)
 }
 
 func (w *documentWorker) process(path string) {
@@ -40,7 +43,7 @@ func (w *documentWorker) process(path string) {
 	}
 	digest, err := w.hash(path)
 	if err != nil {
-		w.skip(rel, 0, err)
+		w.skip(rel, 0, err, "")
 		return
 	}
 	if doc, ok := w.cache[rel]; ok && doc.SHA256 == digest {
@@ -56,10 +59,10 @@ func (w *documentWorker) process(path string) {
 	count, err := w.extractor.PageCount(w.ctx, path)
 	w.extraction.Add(int64(time.Since(start)))
 	if err != nil {
-		w.skip(rel, 0, err)
+		w.skipAfterRead(path, rel, 0, digest, err)
 		return
 	}
-	doc := Document{Filename: rel, SHA256: digest, PageCount: count, Pages: make([]Page, count)}
+	doc := Document{Filename: rel, SHA256: digest, PageCount: count, Pages: make([]Page, count), PageTextSHA256: make([]string, count)}
 	var pending sync.WaitGroup
 	var discard atomic.Bool
 	var readErr error
@@ -83,6 +86,12 @@ func (w *documentWorker) process(path string) {
 			doc.Failures = append(doc.Failures, pageFailure(page, err))
 			continue
 		}
+		// Hash the exact extracted UTF-8 text, even for blank or tokenless
+		// pages. Failed extractions retain the empty slot for that page.
+		start = time.Now()
+		pageHash := sha256.Sum256([]byte(text))
+		doc.PageTextSHA256[page-1] = hex.EncodeToString(pageHash[:])
+		w.hashing.Add(int64(time.Since(start)))
 		if strings.TrimSpace(text) == "" {
 			continue
 		}
@@ -103,16 +112,16 @@ func (w *documentWorker) process(path string) {
 		if reason := recoveryInfo(w.extractor); reason != "" {
 			readErr = fmt.Errorf("%w (cross-reference recovery succeeded; original issue: %s)", readErr, reason)
 		}
-		w.skip(rel, failedPage, readErr)
+		w.skipAfterRead(path, rel, failedPage, digest, readErr)
 		return
 	}
 	after, err := w.hash(path)
 	if err != nil {
-		w.skip(rel, 0, err)
+		w.skip(rel, 0, err, "")
 		return
 	}
 	if after != digest {
-		w.skip(rel, 0, fmt.Errorf("source changed during indexing; retry this PDF"))
+		w.skip(rel, 0, fmt.Errorf("source changed during indexing; retry this PDF"), "")
 		return
 	}
 	kept := doc.Pages[:0]
@@ -124,7 +133,7 @@ func (w *documentWorker) process(path string) {
 	doc.Pages = kept
 	doc.Recovery = recoveryInfo(w.extractor)
 	if len(doc.Pages) == 0 && len(doc.Failures) > 0 {
-		w.skip(rel, doc.Failures[0].Page, fmt.Errorf("%s", doc.Failures[0].Reason), doc.Failures...)
+		w.skip(rel, doc.Failures[0].Page, fmt.Errorf("%s", doc.Failures[0].Reason), digest, doc.Failures...)
 		return
 	}
 	w.notify(Progress{Phase: "completed", Filename: rel, Page: count, Pages: count, Recovered: doc.Recovery != "", Partial: len(doc.Failures) > 0})
@@ -133,4 +142,23 @@ func (w *documentWorker) process(path string) {
 	case <-w.ctx.Done():
 		return
 	}
+}
+
+// A skipped PDF has no indexed document to hold its file hash. Keep the hash
+// in its report only if the source remained stable through the attempted read.
+func (w *documentWorker) skipAfterRead(path, rel string, page int, digest string, reason error) {
+	if w.ctx.Err() != nil || fatalReadError(reason) {
+		w.skip(rel, page, reason, "")
+		return
+	}
+	after, err := w.hash(path)
+	if err != nil {
+		w.skip(rel, 0, err, "")
+		return
+	}
+	if after != digest {
+		w.skip(rel, 0, fmt.Errorf("source changed during indexing; retry this PDF"), "")
+		return
+	}
+	w.skip(rel, page, reason, digest)
 }

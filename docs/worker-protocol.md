@@ -45,13 +45,14 @@ Library summaries contain `directory`, `indexed`, `documents`, `pages`,
 `filename`, `kind` (`recovered`, `partial`, or `skipped`), `reason`, and an optional physical
 `page` for extraction failures. Partial reports also include `indexed_pages` and
 `failures`, an ordered array of `{page, reason, feature?}` entries. Fully skipped
-documents can include `failures` when individual pages were attempted. Failed
+documents can include `failures` when individual pages were attempted and a
+`sha256` file hash when their source was read and remained stable. Failed
 pages are counted separately from empty/tokenless pages. Reports are persisted in
 the index and restored when unchanged documents are reused. `partial` counts
 documents with retained searchable pages and extraction failures. `recovered`
 counts indexed documents using cross-reference recovery, including reused documents.
 Both counts are subsets of `indexed + reused`, not additional document counts.
-Timings contain `hashing_ns`, `extraction_ns`, `embedding_ns`,
+Timings contain `hashing_ns` (file and extracted-page hashes), `extraction_ns`, `embedding_ns`,
 `total_ns`, and `saving_ns`. Stage times are cumulative across workers and can
 exceed the build wall time (`total_ns`); embedding includes tokenization and
 inference. Saving is measured separately from the build. Page

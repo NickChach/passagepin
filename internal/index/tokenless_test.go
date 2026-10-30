@@ -112,6 +112,9 @@ func checkTokenlessLibrary(t *testing.T, model Embedder, options Options) {
 		if doc.PageCount != len(fixtures[doc.Filename]) {
 			t.Fatalf("lost physical page count: %+v", doc)
 		}
+		if doc.Filename == "control.pdf" && !reflect.DeepEqual(doc.PageTextSHA256, []string{testDigest(text)}) {
+			t.Fatalf("tokenless page lost its extracted-text hash: %+v", doc)
+		}
 		numbers := []int{}
 		for _, page := range doc.Pages {
 			numbers = append(numbers, page.Number)

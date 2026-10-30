@@ -207,8 +207,14 @@ embedding pipeline is applied to the query.
 
 There is exactly **one stored vector and one result per page**. Windows are an internal inference detail and never span pages. The model
 never receives a whole PDF. Only a bounded number of pages' text and model outputs are held during embedding. The persistent index contains
-filenames, hashes, page numbers, and vectors; it does not store extracted page text. Model asset hashes and a pipeline version prevent
-searching an index with incompatible query embeddings.
+filenames, hashes, page numbers, and vectors; it does not store extracted page text. Each indexed PDF has a SHA-256 file hash and, for
+each successfully extracted physical page, a SHA-256 hash of the exact extracted text, including blank or tokenless pages. Failed pages have
+no text hash. A stable file hash is also recorded for a skipped PDF when it could be read; pages from a wholly skipped PDF are not retained.
+Model asset hashes and a pipeline version prevent searching an index with incompatible query embeddings.
+
+The page hashes are stored for future use; updates still re-extract and re-embed a changed PDF. This addition is compatible with index format
+8: older indexes remain searchable without rebuilding. Unchanged PDFs reused from an older index do not have page hashes until they are
+reprocessed or the index is rebuilt.
 
 ## Go PDF reader
 

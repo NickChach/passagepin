@@ -181,7 +181,7 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 	// Backpressure bounds queued page strings to twice the inference worker count.
 	pages := make(chan pageJob, 2*embeddingWorkers)
 	documents := make(chan documentResult)
-	skip := func(filename string, page int, err error, failures ...PageFailure) {
+	skip := func(filename string, page int, err error, digest string, failures ...PageFailure) {
 		if ctx.Err() != nil {
 			fail(ctx.Err())
 			return
@@ -193,7 +193,7 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 		if page > 0 && len(failures) == 0 {
 			failures = []PageFailure{pageFailure(page, err)}
 		}
-		issue := FileIssue{Filename: filename, Kind: "skipped", Reason: issueReason(err), Page: page, Failures: failures}
+		issue := FileIssue{Filename: filename, Kind: "skipped", Reason: issueReason(err), SHA256: digest, Page: page, Failures: failures}
 		var unsupported *pdf.UnsupportedFeatureError
 		if errors.As(err, &unsupported) {
 			issue.Feature = unsupported.Feature
@@ -240,7 +240,7 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 		readers.Add(1)
 		go func(extractor Extractor) {
 			defer readers.Done()
-			worker := documentWorker{ctx: ctx, root: root, cache: cache, extractor: extractor, hash: hash, extraction: &extraction, pages: pages, documents: documents, notify: notify, fail: fail, skip: skip}
+			worker := documentWorker{ctx: ctx, root: root, cache: cache, extractor: extractor, hash: hash, hashing: &hashing, extraction: &extraction, pages: pages, documents: documents, notify: notify, fail: fail, skip: skip}
 			for path := range files {
 				if ctx.Err() != nil {
 					return

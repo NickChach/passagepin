@@ -37,3 +37,13 @@ test('issue kinds must be strings rather than coercible values', () => {
     issues: [{ filename: 'book.pdf', kind: ['partial'], reason: 'a page failed' }],
   }));
 });
+
+test('skipped PDF hashes are optional, but must be valid when present', () => {
+  const state = {
+    directory: '/library', indexed: true, documents: 0, pages: 0, empty_pages: 0, updated_at: null,
+    issues: [{ filename: 'book.pdf', kind: 'skipped', reason: 'unreadable', sha256: 'a'.repeat(64) }],
+  };
+  assert.deepEqual(parseWorkerResult('open', state), state);
+  assert.throws(() => parseWorkerResult('open', { ...state, issues: [{ ...state.issues[0], sha256: 'invalid' }] }));
+  assert.throws(() => parseWorkerResult('open', { ...state, issues: [{ ...state.issues[0], kind: 'recovered' }] }));
+});

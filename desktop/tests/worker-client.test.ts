@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { copyFile, mkdtemp, rm } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { WorkerClient, WorkerError } from '../electron/worker-client';
@@ -17,8 +18,10 @@ test('real Go worker keeps one process and model for indexing and repeated searc
   const root = path.join(work, 'pdfs');
   const original = await createLibrary(root, true);
   await copyFile(original, path.join(root, 'More research.pdf'));
+  await writeFile(path.join(root, 'broken.pdf'), 'broken');
+  const indexPath = path.join(work, 'index.json');
   const ready = await client.start(); assert.equal(ready.model_loads, 1);
-  await client.request('open', { directory: root, index_path: path.join(work, 'index.json') });
+  await client.request('open', { directory: root, index_path: indexPath });
   const progress: Progress[] = []; client.on('progress', (event: Progress) => progress.push(event));
   const indexed = await client.request('index');
   assert.equal(indexed.library.documents, 2); assert.equal(indexed.library.pages, 4); assert.equal(indexed.library.empty_pages, 2);
@@ -34,6 +37,15 @@ test('real Go worker keeps one process and model for indexing and repeated searc
   }
   const page = await client.request('page', { filename: 'Energy and bread.pdf', page: 3 });
   assert.match(page.text, /Photovoltaic/);
+  assert.equal(indexed.stats.skipped, 1);
+  assert.equal(indexed.library.issues?.find((issue) => issue.filename === 'broken.pdf')?.sha256, createHash('sha256').update('broken').digest('hex'));
+  const saved = JSON.parse(await readFile(indexPath, 'utf8')) as {
+    documents: { filename: string; sha256: string; page_text_sha256: string[] }[];
+  };
+  const doc = saved.documents.find((entry) => entry.filename === 'Energy and bread.pdf');
+  assert.equal(doc?.sha256, createHash('sha256').update(await readFile(original)).digest('hex'));
+  assert.equal(doc?.page_text_sha256.length, 3);
+  assert.equal(doc?.page_text_sha256[2], createHash('sha256').update(page.text).digest('hex'));
   assert.deepEqual(await client.request('resolve-pdf', { filename: 'Energy and bread.pdf', page: 3 }), { path: page.path });
   assert.equal(page.path, path.join(root, 'Energy and bread.pdf'));
   const status = await client.request('status');

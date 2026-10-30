@@ -20,7 +20,10 @@ results using the real pinned model and runtime.
 Window order and pooling within a page are unchanged, so existing indexes and
 model fingerprints remain compatible. Completion order does not affect saved
 document or page order. File hashes are checked before reading and again after
-all embeddings for that PDF finish. Individual document failures discard that
+all embeddings for that PDF finish. Each successfully extracted page's text is
+also hashed, including blank and tokenless pages. The hashing timing includes
+both file and page-text hashing. These page hashes are stored but not yet used
+to reuse vectors after a PDF changes. Individual document failures discard that
 PDF's work and produce a skipped-file report while other readers continue.
 Fatal errors or cancellation stop the pipeline, drain outstanding jobs, close
 readers, and leave the previous saved and in-memory index available.

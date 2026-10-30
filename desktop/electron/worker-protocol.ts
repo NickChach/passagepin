@@ -41,6 +41,7 @@ function issues(value: unknown): boolean {
   return value === undefined || Array.isArray(value) && value.every(item => {
     const issue = object(item);
     return nonempty(issue.filename) && typeof issue.kind === 'string' && ['recovered', 'partial', 'skipped'].includes(issue.kind) && nonempty(issue.reason)
+      && (issue.sha256 === undefined || issue.kind === 'skipped' && typeof issue.sha256 === 'string' && /^[0-9a-f]{64}$/.test(issue.sha256))
       && (issue.page === undefined || count(issue.page)) && (issue.feature === undefined || typeof issue.feature === 'string')
       && (issue.indexed_pages === undefined || count(issue.indexed_pages)) && (issue.failures === undefined || failures(issue.failures));
   });

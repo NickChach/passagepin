@@ -12,7 +12,7 @@ export interface Library {
 export interface SavedLibrary { id: string; name: string; directory: string }
 export interface SavedLibraries { libraries: SavedLibrary[]; activeLibraryId: string | null }
 export interface PageFailure { page: number; reason: string; feature?: string }
-export interface FileIssue { filename: string; kind: 'recovered' | 'partial' | 'skipped'; reason: string; page?: number; feature?: string; indexed_pages?: number; failures?: PageFailure[] }
+export interface FileIssue { filename: string; kind: 'recovered' | 'partial' | 'skipped'; reason: string; sha256?: string; page?: number; feature?: string; indexed_pages?: number; failures?: PageFailure[] }
 export interface SearchResult { filename: string; page: number; score: number }
 export interface PageText { filename: string; page: number; text: string }
 export type Progress =

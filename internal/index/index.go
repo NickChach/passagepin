@@ -26,12 +26,15 @@ type Page struct {
 }
 
 type Document struct {
-	Filename  string        `json:"filename"`
-	SHA256    string        `json:"sha256"`
-	PageCount int           `json:"page_count"`
-	Pages     []Page        `json:"pages"`
-	Recovery  string        `json:"recovery,omitempty"`
-	Failures  []PageFailure `json:"failures,omitempty"`
+	Filename  string `json:"filename"`
+	SHA256    string `json:"sha256"`
+	PageCount int    `json:"page_count"`
+	Pages     []Page `json:"pages"`
+	// One SHA-256 of exact extracted text per physical page. An empty entry
+	// marks a failed extraction; nil identifies an older format-8 document.
+	PageTextSHA256 []string      `json:"page_text_sha256,omitempty"`
+	Recovery       string        `json:"recovery,omitempty"`
+	Failures       []PageFailure `json:"failures,omitempty"`
 }
 
 type PageFailure struct {
@@ -54,6 +57,7 @@ type FileIssue struct {
 	Filename     string        `json:"filename"`
 	Kind         string        `json:"kind"` // recovered, partial, or skipped
 	Reason       string        `json:"reason"`
+	SHA256       string        `json:"sha256,omitempty"` // stable hash of a skipped PDF, when readable
 	Page         int           `json:"page,omitempty"`
 	Feature      string        `json:"feature,omitempty"`
 	IndexedPages int           `json:"indexed_pages,omitempty"`
@@ -143,6 +147,9 @@ func (idx *Index) Validate() error {
 		if !filepath.IsLocal(issue.Filename) || issue.Filename == "." || (issue.Kind != "skipped" && issue.Kind != "recovered" && issue.Kind != "partial") || issue.Reason == "" || issue.Page < 0 || issue.IndexedPages < 0 {
 			return fmt.Errorf("invalid index file issue")
 		}
+		if issue.SHA256 != "" && (issue.Kind != "skipped" || !validSHA256(issue.SHA256)) {
+			return fmt.Errorf("invalid skipped PDF hash")
+		}
 		if issue.Kind == "partial" && (issue.IndexedPages < 1 || len(issue.Failures) == 0) {
 			return fmt.Errorf("invalid partial index file issue")
 		}
@@ -175,6 +182,18 @@ func (idx *Index) Validate() error {
 		for _, failure := range doc.Failures {
 			failed[failure.Page] = true
 		}
+		// Older format-8 indexes have no page hashes. When present, an empty
+		// entry denotes a failed extraction, not an empty or tokenless page.
+		if doc.PageTextSHA256 != nil {
+			if len(doc.PageTextSHA256) != doc.PageCount {
+				return fmt.Errorf("invalid page text hashes for %q", doc.Filename)
+			}
+			for i, digest := range doc.PageTextSHA256 {
+				if failed[i+1] && digest != "" || !failed[i+1] && !validSHA256(digest) {
+					return fmt.Errorf("invalid page text hash for %q page %d", doc.Filename, i+1)
+				}
+			}
+		}
 		previous := 0
 		for _, page := range doc.Pages {
 			if page.Number <= previous || page.Number > doc.PageCount || failed[page.Number] {
@@ -190,6 +209,18 @@ func (idx *Index) Validate() error {
 		return fmt.Errorf("partial report has no indexed document")
 	}
 	return nil
+}
+
+func validSHA256(digest string) bool {
+	if len(digest) != 2*sha256.Size {
+		return false
+	}
+	for _, c := range digest {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 func validateFailures(failures []PageFailure, count int) error {
