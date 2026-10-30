@@ -161,7 +161,8 @@ Filenames are relative to the directory indexed. Page numbers refer to the physi
 and blank pages; they may differ from printed page labels.
 
 Run `index` again with the same directory and index path to update it. SHA-256 content hashes let it reuse unchanged PDFs; changed PDFs are
-re-embedded and deleted PDFs disappear. Use `--rebuild` when changing the directory, model, or embedding pipeline. Page extraction failures
+re-extracted, with existing vectors reused for unchanged page text and changed/new pages embedded. Deleted PDFs and pages disappear.
+Use `--rebuild` when changing the directory, model, or embedding pipeline. Page extraction failures
 are recorded individually; readable pages before and after a failed page remain searchable at their original physical page numbers. The
 report distinguishes partially indexed PDFs, skipped PDFs, and recovered cross-references. Failed pages are not counted as empty pages.
 Unreadable document structure, unsafe recovery, or failed documents with no searchable pages skip the complete PDF. Unchanged partial
@@ -212,9 +213,14 @@ each successfully extracted physical page, a SHA-256 hash of the exact extracted
 no text hash. A stable file hash is also recorded for a skipped PDF when it could be read; pages from a wholly skipped PDF are not retained.
 Model asset hashes and a pipeline version prevent searching an index with incompatible query embeddings.
 
-The page hashes are stored for future use; updates still re-extract and re-embed a changed PDF. This addition is compatible with index format
-8: older indexes remain searchable without rebuilding. Unchanged PDFs reused from an older index do not have page hashes until they are
-reprocessed or the index is rebuilt.
+Index format 9 requires these page hashes. Rebuild older indexes once before searching; saved libraries, theme, and source PDFs are preserved.
+
+On launch and library selection, the desktop app checks the active library in a separate process without loading another model. Searches
+remain available during the check. Only PDFs with changed file hashes are extracted to compare page-text hashes. Annotation-only changes
+with identical extracted text quietly refresh the file hashes. Changed pages, added/removed PDFs, and read errors produce an update notice
+with **Update index** and **Later** options. Updating re-extracts affected PDFs to verify the current source and embeds only changed/new
+searchable pages. No extracted text is retained between checking and updating. Checks are cancelled on library changes, updates, or quit;
+select the library again to check for further edits during a session.
 
 ## Go PDF reader
 
@@ -264,9 +270,8 @@ until the reader advances to the next PDF.
 
 The [PDF extraction corpus](internal/pdf/testdata/corpus/README.md) contains reproducible, self-authored MIT-licensed fixtures with expected
 page text, explicit unsupported-feature outcomes, and a tracked column-order limitation. Run
-`go test -v ./internal/pdf -run TestExtractionCorpus` to check it. Index format version 8 requires rebuilding older indexes to retry pages
-previously rejected for publisher symbol mappings, undefined Type 1 glyphs or redundant end-text operators. It retains the corrected spacing
-for rotated/scaled text and exclusion of documents with unresolved cross-reference errors after recovery from version 7.
+`go test -v ./internal/pdf -run TestExtractionCorpus` to check it. Index format version 9 requires rebuilding older indexes to establish mandatory page-text hashes. It retains the PDF extraction fixes
+from formats 7 and 8, including publisher symbol mappings and safe cross-reference recovery.
 
 ## Practical limits
 

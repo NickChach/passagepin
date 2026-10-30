@@ -58,7 +58,7 @@ export function parseWorkerResult<M extends keyof WorkerMethods>(method: M, valu
   const r = object(value);
   let valid = false;
   switch (method) {
-    case 'open': case 'status': valid = library(r); break;
+    case 'refresh': case 'open': case 'status': valid = library(r); break;
     case 'search':
       valid = typeof r.query === 'string' && Array.isArray(r.results) && r.results.every(item => {
         const hit = object(item);

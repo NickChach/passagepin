@@ -73,7 +73,7 @@ func TestPageTextHashesPersistAndFollowPhysicalPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	updated, stats, err := build(reused)
-	if err != nil || stats.Indexed != 1 || stats.Reused != 1 || calls.Load() != 9 {
+	if err != nil || stats.Indexed != 1 || stats.Reused != 1 || calls.Load() != 6 {
 		t.Fatalf("changed PDF was not reprocessed: stats=%+v calls=%d err=%v", stats, calls.Load(), err)
 	}
 	if updated.Documents[0].SHA256 != testDigest("changed PDF") || !reflect.DeepEqual(updated.Documents[0].PageTextSHA256, wantHashes) {
@@ -81,34 +81,15 @@ func TestPageTextHashesPersistAndFollowPhysicalPages(t *testing.T) {
 	}
 }
 
-func TestFormat8IndexWithoutPageHashesRemainsUsable(t *testing.T) {
+func TestFormat8IndexRequiresRebuild(t *testing.T) {
 	root := makeFiles(t, 1)
-	extractor := &fakePDF{pages: []string{"text"}}
-	model := &fakeModel{}
-	idx, _, err := Build(context.Background(), root, "weights", true, nil, extractor, model, io.Discard)
+	idx, _, err := Build(context.Background(), root, "weights", true, nil, &fakePDF{pages: []string{"text"}}, &fakeModel{}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// An index written by an earlier format-8 release has no page hash field.
-	idx.Documents[0].PageTextSHA256 = nil
-	path := filepath.Join(t.TempDir(), "legacy.json")
-	if err := idx.Save(path); err != nil {
-		t.Fatal(err)
-	}
-	legacy, err := Load(path)
-	if err != nil || legacy.Documents[0].PageTextSHA256 != nil {
-		t.Fatalf("could not load legacy format-8 index: %v", err)
-	}
-	if results, err := legacy.Search(unit(0), 1, 0); err != nil || len(results) != 1 {
-		t.Fatalf("legacy index cannot be searched: %v", err)
-	}
-	reused, stats, err := Build(context.Background(), root, "weights", true, legacy, extractor, model, io.Discard)
-	if err != nil || stats.Reused != 1 || model.calls != 1 || reused.Documents[0].PageTextSHA256 != nil {
-		t.Fatalf("legacy PDF was not reused: stats=%+v calls=%d err=%v", stats, model.calls, err)
-	}
-	rebuilt, _, err := Build(context.Background(), root, "weights", true, nil, extractor, model, io.Discard)
-	if err != nil || !reflect.DeepEqual(rebuilt.Documents[0].PageTextSHA256, []string{testDigest("text")}) {
-		t.Fatalf("reprocessing did not add page hashes: %v", err)
+	idx.Version = 8
+	if err := idx.Validate(); err == nil {
+		t.Fatal("accepted an older index")
 	}
 }
 
@@ -118,7 +99,7 @@ func TestPageTextHashValidation(t *testing.T) {
 		hashes []string
 		valid  bool
 	}{
-		{"legacy", nil, true},
+		{"missing hashes", nil, false},
 		{"complete with failure", []string{testDigest("text"), "", testDigest("")}, true},
 		{"missing page", []string{testDigest("text"), ""}, false},
 		{"missing successful hash", []string{testDigest("text"), "", ""}, false},

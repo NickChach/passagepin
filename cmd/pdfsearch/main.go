@@ -44,6 +44,7 @@ Usage:
   pdfsearch bundle-info
   pdfsearch licenses
   pdfsearch worker [options]
+  pdfsearch check-index --index FILE
 
 Run a command with --help for its options. Put flags before the query.
 `
@@ -122,6 +123,23 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	f := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	f.SetOutput(stderr)
 	switch args[0] {
+	case "check-index":
+		path := f.String("index", "", "saved index to check without loading the model")
+		if err := f.Parse(args[1:]); err != nil {
+			return err
+		}
+		if *path == "" || f.NArg() != 0 {
+			return fmt.Errorf("usage: pdfsearch check-index --index FILE")
+		}
+		idx, err := index.Load(*path)
+		if err != nil {
+			return err
+		}
+		result, err := idx.Check(ctx)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(result)
 	case "worker":
 		m := addModelFlags(f)
 		o := addIndexFlags(f)

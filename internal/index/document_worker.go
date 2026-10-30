@@ -46,10 +46,11 @@ func (w *documentWorker) process(path string) {
 		w.skip(rel, 0, err, "")
 		return
 	}
-	if doc, ok := w.cache[rel]; ok && doc.SHA256 == digest {
-		w.notify(Progress{Phase: "reused", Filename: rel, Pages: doc.PageCount, Recovered: doc.Recovery != "", Partial: len(doc.Failures) > 0})
+	old, exists := w.cache[rel]
+	if exists && old.SHA256 == digest {
+		w.notify(Progress{Phase: "reused", Filename: rel, Pages: old.PageCount, Recovered: old.Recovery != "", Partial: len(old.Failures) > 0})
 		select {
-		case w.documents <- documentResult{doc: doc, reused: true}:
+		case w.documents <- documentResult{doc: old, reused: true}:
 		case <-w.ctx.Done():
 			return
 		}
@@ -63,6 +64,10 @@ func (w *documentWorker) process(path string) {
 		return
 	}
 	doc := Document{Filename: rel, SHA256: digest, PageCount: count, Pages: make([]Page, count), PageTextSHA256: make([]string, count)}
+	oldPages := make(map[int]Page)
+	for _, page := range old.Pages {
+		oldPages[page.Number] = page
+	}
 	var pending sync.WaitGroup
 	var discard atomic.Bool
 	var readErr error
@@ -92,6 +97,12 @@ func (w *documentWorker) process(path string) {
 		pageHash := sha256.Sum256([]byte(text))
 		doc.PageTextSHA256[page-1] = hex.EncodeToString(pageHash[:])
 		w.hashing.Add(int64(time.Since(start)))
+		if page <= len(old.PageTextSHA256) && old.PageTextSHA256[page-1] == doc.PageTextSHA256[page-1] {
+			if previous, ok := oldPages[page]; ok {
+				doc.Pages[page-1] = previous
+			}
+			continue
+		}
 		if strings.TrimSpace(text) == "" {
 			continue
 		}

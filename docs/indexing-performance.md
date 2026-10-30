@@ -22,8 +22,8 @@ model fingerprints remain compatible. Completion order does not affect saved
 document or page order. File hashes are checked before reading and again after
 all embeddings for that PDF finish. Each successfully extracted page's text is
 also hashed, including blank and tokenless pages. The hashing timing includes
-both file and page-text hashing. These page hashes are stored but not yet used
-to reuse vectors after a PDF changes. Individual document failures discard that
+both file and page-text hashing. When a PDF changes, matching hashes at the same physical page reuse existing
+vectors; only changed/new searchable pages require inference. Individual document failures discard that
 PDF's work and produce a skipped-file report while other readers continue.
 Fatal errors or cancellation stop the pipeline, drain outstanding jobs, close
 readers, and leave the previous saved and in-memory index available.
@@ -35,7 +35,8 @@ larger streams use the ordinary uncached path. Header entries are parsed only
 through the requested member, preserving errors for malformed data without
 rejecting earlier valid members because of an unused malformed suffix. Closing
 or recovering a document releases its cache. These parser optimizations preserve
-extracted text and index format 8; existing format-8 indexes need no rebuild.
+extracted text. Index format 9 separately requires a one-time rebuild of older
+indexes for mandatory page hashes.
 
 ## Measure a library
 

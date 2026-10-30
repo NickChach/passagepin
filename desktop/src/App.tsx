@@ -9,6 +9,7 @@ import SidebarFooter from "./components/SidebarFooter";
 import SearchForm from "./components/SearchForm";
 import IndexReport from "./components/IndexReport";
 import SearchResults from "./components/SearchResults";
+import LibraryCheckNotice from "./components/LibraryCheckNotice";
 import Welcome from "./components/Welcome";
 
 export default function App() {
@@ -86,6 +87,7 @@ export default function App() {
 						<span>{error || state.error || state.libraryError}</span>
 					</div>
 				)}
+				<LibraryCheckNotice check={state.check} busy={busy} onUpdate={indexFolder} />
 				{notice && (
 					<div className="message notice" role="status">
 						{notice}

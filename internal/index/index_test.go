@@ -34,7 +34,7 @@ func unit(axis int) []float32                                         { v := mak
 func (f *fakeModel) Embed(context.Context, string) ([]float32, error) { f.calls++; return unit(0), nil }
 
 func TestPreviousExtractorIndexNeedsRebuild(t *testing.T) {
-	for _, version := range []int{2, 3, 4, 5, 6} {
+	for _, version := range []int{2, 3, 4, 5, 6, 7, 8} {
 		idx := &Index{Version: version, Root: t.TempDir(), Model: embedding.ModelID, Fingerprint: "weights"}
 		if err := idx.Validate(); err == nil || !strings.Contains(err.Error(), "rebuild") {
 			t.Fatalf("accepted vectors from extractor version %d: %v", version, err)
@@ -47,7 +47,7 @@ func TestInvalidPartialReportsCannotHideMissingOrSearchableFailures(t *testing.T
 		t.Run(tc, func(t *testing.T) {
 			failure := PageFailure{Page: 2, Reason: "unmapped glyph"}
 			idx := &Index{Version: Version, Root: t.TempDir(), Model: embedding.ModelID, Fingerprint: "weights",
-				Documents: []Document{{Filename: "book.pdf", SHA256: strings.Repeat("0", 64), PageCount: 3, Pages: []Page{{Number: 1, Vector: unit(0)}, {Number: 3, Vector: unit(0)}}, Failures: []PageFailure{failure}}},
+				Documents: []Document{{Filename: "book.pdf", SHA256: strings.Repeat("0", 64), PageCount: 3, PageTextSHA256: []string{testDigest("a"), "", testDigest("b")}, Pages: []Page{{Number: 1, Vector: unit(0)}, {Number: 3, Vector: unit(0)}}, Failures: []PageFailure{failure}}},
 				Issues:    []FileIssue{{Filename: "book.pdf", Kind: "partial", Reason: "1 page failed", IndexedPages: 2, Failures: []PageFailure{failure}}},
 			}
 			if err := idx.Validate(); err != nil {
@@ -113,7 +113,7 @@ func TestIncrementalIndexPageNumbersAndDeletion(t *testing.T) {
 		t.Fatal(err)
 	}
 	idx, stats, err = Build(ctx, root, "weights", true, idx, extractor, model, io.Discard)
-	if err != nil || stats.Indexed != 1 || model.calls != 4 {
+	if err != nil || stats.Indexed != 1 || model.calls != 2 {
 		t.Fatalf("changed stats=%+v err=%v", stats, err)
 	}
 	if err := os.Remove(path); err != nil {

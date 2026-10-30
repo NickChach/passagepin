@@ -1,3 +1,4 @@
+import type { LibraryChecker, FileRefresh } from './library-check';
 import { mkdir, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { libraryID, type LibraryStore } from './library-store';
@@ -15,14 +16,17 @@ export class DesktopSession {
   readonly state: State = { ready: null, error: null, operation: null, library: null, libraries: [], activeLibraryId: null, libraryError: null };
   private client: WorkerConnection | null = null;
   private startup: Promise<void> | null = null;
+  private checking: AbortController | null = null;
+  private checkGeneration = 0;
+  private pendingRefresh: { generation: number; files: FileRefresh[] } | null = null;
   constructor(private readonly libraries: Registry, private readonly indexDirectory: string,
-    private readonly createWorker: () => WorkerConnection, private readonly publish: (event: WorkerEvent) => void) {}
+    private readonly createWorker: () => WorkerConnection, private readonly publish: (event: WorkerEvent) => void, private readonly checker?: LibraryChecker) {}
   start(): Promise<void> { this.startup = this.initialize(); return this.startup; }
-  async stop(): Promise<void> { await this.client?.stop(); }
+  async stop(): Promise<void> { this.stopCheck(); await this.client?.stop(); }
   async restart(): Promise<State> {
     await this.startup;
     if (this.state.operation) throw new Error('Cancel the current operation before restarting.');
-    await this.client?.stop(); await this.start(); return this.state;
+    this.stopCheck(); await this.client?.stop(); await this.start(); return this.state;
   }
   async cancel(): Promise<void> { await this.client?.cancel(); }
   async chooseFolder(pick: () => Promise<string | undefined>): Promise<Library | null> {
@@ -75,9 +79,61 @@ export class DesktopSession {
     await this.startup;
     if (!this.client || !this.state.ready || this.state.error) throw new Error(this.state.error || 'The search engine is still starting.');
     if (this.state.operation) throw new Error('Wait for the current operation or cancel it first.');
+    if (['opening', 'indexing', 'removing'].includes(name)) this.stopCheck();
     this.state.operation = name; this.publish({ kind: 'operation', data: name });
     try { return await action(); }
-    finally { this.state.operation = null; this.publish({ kind: 'operation', data: null }); }
+    finally { this.state.operation = null; this.publish({ kind: 'operation', data: null }); if (!this.state.check) this.startCheck(); void this.flushRefresh(); }
+  }
+  private publishCheck(data: State['check']): void {
+    this.state.check = data; this.publish({ kind: 'check', data: data ?? null });
+  }
+  private stopCheck(): void {
+    this.checkGeneration++; this.checking?.abort(); this.checking = null; this.pendingRefresh = null;
+    this.publishCheck(null);
+  }
+  private startCheck(): void {
+    const library = this.state.library;
+    if (!this.checker || !library?.indexed || this.checking || this.state.check) return;
+    const generation = this.checkGeneration;
+    const controller = new AbortController(); this.checking = controller;
+    const indexPath = path.join(this.indexDirectory, libraryID(library.directory) + '.json');
+    this.publishCheck({ status: 'checking' });
+    void this.checker(indexPath, controller.signal).then(result => {
+      if (generation !== this.checkGeneration) return;
+      this.checking = null;
+      const changed = result.changed_pages + result.added_files + result.removed_files > 0 || result.errors.length > 0;
+      this.publishCheck({ status: changed ? 'changed' : 'current', changed_pages: result.changed_pages,
+        added_files: result.added_files, removed_files: result.removed_files, errors: result.errors });
+      if (result.refresh.length) { this.pendingRefresh = { generation, files: result.refresh }; void this.flushRefresh(); }
+    }).catch((error: unknown) => {
+      if (generation !== this.checkGeneration) return;
+      this.checking = null;
+      this.publishCheck({ status: 'error', message: error instanceof Error ? error.message : String(error) });
+    });
+  }
+  private async flushRefresh(): Promise<void> {
+    await this.startup;
+    const pending = this.pendingRefresh;
+    if (!pending || pending.generation !== this.checkGeneration || this.state.operation || !this.client || !this.state.ready) return;
+    this.pendingRefresh = null;
+    this.state.operation = 'refreshing'; this.publish({ kind: 'operation', data: 'refreshing' });
+    try {
+      // Leave room for protocol framing below the worker's 1 MiB limit.
+      let batch: FileRefresh[] = [];
+      let bytes = 0;
+      const save = async () => {
+        const library = await this.client!.request('refresh', { files: batch });
+        this.state.library = library; this.publish({ kind: 'library', data: library });
+      };
+      for (const file of pending.files) {
+        const size = Buffer.byteLength(JSON.stringify(file)) + 1;
+        if (batch.length && bytes + size > 512 * 1024) { await save(); batch = []; bytes = 0; }
+        batch.push(file); bytes += size;
+      }
+      if (batch.length) await save();
+    } catch (error) {
+      if (pending.generation === this.checkGeneration) this.publishCheck({ status: 'error', message: error instanceof Error ? error.message : String(error) });
+    } finally { this.state.operation = null; this.publish({ kind: 'operation', data: null }); }
   }
   private publishLibraries(): void {
     const saved = this.libraries.snapshot();
@@ -85,9 +141,11 @@ export class DesktopSession {
     this.publish({ kind: 'libraries', data: saved });
   }
   private setLibrary(library: Library | null, error: string | null = null): void {
+    this.stopCheck();
     this.state.library = library; this.state.libraryError = error;
     this.publish({ kind: 'library', data: library });
     this.publish({ kind: 'library-error', data: error });
+    this.startCheck();
   }
   private requireLibrary(): void {
     if (!this.state.library) throw new Error('Choose an available library first.');
@@ -122,6 +180,7 @@ export class DesktopSession {
     next.on('progress', (data) => this.publish({ kind: 'progress', data }));
     next.on('crashed', (error: Error) => {
       if (this.client !== next) return;
+      this.stopCheck();
       this.state.ready = null; this.state.error = error.message;
       this.publish({ kind: 'failed', data: error.message });
     });

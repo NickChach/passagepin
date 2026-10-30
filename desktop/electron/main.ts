@@ -3,6 +3,7 @@ import path from 'node:path';
 import { ipcResult } from './ipc-result';
 import { WorkerClient } from './worker-client';
 import { LibraryStore } from './library-store';
+import { checkLibrary } from './library-check';
 import { DesktopSession } from './desktop-session';
 import type { WorkerEvent } from './types';
 
@@ -19,7 +20,7 @@ const profile = e2e && process.env.PDFSEARCH_E2E_DATA
 app.setPath('userData', profile);
 app.setPath('sessionData', profile);
 const session = new DesktopSession(new LibraryStore(profile), path.join(profile, 'indexes'),
-  () => new WorkerClient(workerPath()), publish);
+  () => new WorkerClient(workerPath()), publish, (indexPath, signal) => checkLibrary(workerPath(), indexPath, signal));
 
 function publish(event: WorkerEvent): void { if (window && !window.isDestroyed()) window.webContents.send('worker:event', event); }
 function workerPath(): string {

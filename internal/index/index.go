@@ -16,9 +16,8 @@ import (
 	"github.com/darkearl/semantic-search/internal/embedding"
 )
 
-// Version 8 retries pages previously rejected for publisher symbol mappings,
-// undefined Type 1 glyphs and redundant end-text operators.
-const Version = 8
+// Version 9 requires page text hashes for safe incremental page reuse.
+const Version = 9
 
 type Page struct {
 	Number int       `json:"number"`
@@ -31,8 +30,8 @@ type Document struct {
 	PageCount int    `json:"page_count"`
 	Pages     []Page `json:"pages"`
 	// One SHA-256 of exact extracted text per physical page. An empty entry
-	// marks a failed extraction; nil identifies an older format-8 document.
-	PageTextSHA256 []string      `json:"page_text_sha256,omitempty"`
+	// marks a failed extraction.
+	PageTextSHA256 []string      `json:"page_text_sha256"`
 	Recovery       string        `json:"recovery,omitempty"`
 	Failures       []PageFailure `json:"failures,omitempty"`
 }
@@ -182,16 +181,13 @@ func (idx *Index) Validate() error {
 		for _, failure := range doc.Failures {
 			failed[failure.Page] = true
 		}
-		// Older format-8 indexes have no page hashes. When present, an empty
-		// entry denotes a failed extraction, not an empty or tokenless page.
-		if doc.PageTextSHA256 != nil {
-			if len(doc.PageTextSHA256) != doc.PageCount {
-				return fmt.Errorf("invalid page text hashes for %q", doc.Filename)
-			}
-			for i, digest := range doc.PageTextSHA256 {
-				if failed[i+1] && digest != "" || !failed[i+1] && !validSHA256(digest) {
-					return fmt.Errorf("invalid page text hash for %q page %d", doc.Filename, i+1)
-				}
+		// An empty hash entry denotes a failed extraction, not an empty page.
+		if len(doc.PageTextSHA256) != doc.PageCount {
+			return fmt.Errorf("invalid page text hashes for %q", doc.Filename)
+		}
+		for i, digest := range doc.PageTextSHA256 {
+			if failed[i+1] && digest != "" || !failed[i+1] && !validSHA256(digest) {
+				return fmt.Errorf("invalid page text hash for %q page %d", doc.Filename, i+1)
 			}
 		}
 		previous := 0

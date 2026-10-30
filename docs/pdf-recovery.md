@@ -29,7 +29,7 @@ Healthy files with these supported normal-reading features still use normal
 parsing. Recovery can fix structural bookkeeping without resolving unrelated
 font, content-stream or text-extraction limitations.
 
-Index format version 8 requires rebuilding older indexes to retry pages rejected
+Index format 9 requires rebuilding older indexes for page hashes. Format 8 retried pages rejected
 for missing publisher symbol mappings, explicitly undefined Type 1 glyphs and
 redundant `ET` operators. Verified proprietary glyph aliases are scoped to their
 font families, and ZapfDingbats uses Adobe's separate glyph list. A partial

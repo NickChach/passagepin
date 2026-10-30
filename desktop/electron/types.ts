@@ -1,3 +1,4 @@
+import type { FileRefresh } from "./library-check";
 export interface Library {
   directory: string;
   indexed: boolean;
@@ -22,6 +23,7 @@ export type Progress =
   | { phase: 'skipped'; filename: string; reason: string; page?: number; pages?: never; recovered?: never; partial?: never };
 export interface WorkerReady { protocol: number; pid: number; model_loads: number }
 export type WorkerEvent =
+  | { kind: "check"; data: LibraryCheck | null }
   | { kind: 'starting' }
   | { kind: 'ready'; data: WorkerReady }
   | { kind: 'progress'; data: Progress }
@@ -30,7 +32,8 @@ export type WorkerEvent =
   | { kind: 'libraries'; data: SavedLibraries }
   | { kind: 'library-error'; data: string | null }
   | { kind: 'failed'; data: string };
-export interface State extends SavedLibraries { ready: WorkerReady | null; error: string | null; operation: string | null; library: Library | null; libraryError: string | null }
+export interface LibraryCheck { status: "checking" | "current" | "changed" | "error"; changed_pages?: number; added_files?: number; removed_files?: number; errors?: string[]; message?: string }
+export interface State extends SavedLibraries { check?: LibraryCheck | null; ready: WorkerReady | null; error: string | null; operation: string | null; library: Library | null; libraryError: string | null }
 export interface DesktopAPI {
   getState(): Promise<State>;
   chooseFolder(): Promise<Library | null>;
@@ -55,6 +58,7 @@ export interface IndexStats {
 export interface IndexResult { library: Library; stats: IndexStats }
 export interface SearchResponse { results: SearchResult[]; query: string }
 export interface WorkerMethods {
+  refresh: { params: { files: FileRefresh[] }; result: Library };
   open: { params: { directory: string; index_path: string }; result: Library };
   status: { params: Record<string, never>; result: Library };
   index: { params: { rebuild?: boolean }; result: IndexResult };

@@ -221,5 +221,8 @@ The renderer composes views in `src/App.tsx`; `use-workspace.ts` coordinates UI
 actions, `use-desktop-state.ts` subscribes to worker state and indexing progress,
 and `use-search-session.ts` owns results, selection and extracted-page previews.
 Opening the system viewer uses the worker's `resolve-pdf` operation and does not
-re-extract text. These refactors retain the version-8 index and model fingerprint;
-existing compatible indexes do not need rebuilding.
+re-extract text. Index format 9 requires rebuilding older indexes once. A separate model-free
+process checks the selected library on startup and selection while searches remain
+available. Changed page text and file additions/removals prompt for an update;
+annotation-only changes refresh file hashes quietly. Updating reuses unchanged
+page vectors. Select the library again to check for later external edits.

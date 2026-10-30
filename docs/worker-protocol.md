@@ -132,3 +132,17 @@ requires rebuilding the worker as well.
 
 The Go JSON dispatcher delegates to typed engine operations. The desktop client
 validates method results and progress before delivering them to callers.
+
+## Background checks and metadata refresh
+
+`pdfsearch check-index --index FILE` reads a format-9 index without initializing
+inference. It emits one JSON result containing `changed_pages`, `added_files`,
+`removed_files`, `errors`, and `refresh` entries (`filename`, `before`, `after`
+file hashes). It never writes the index. Electron owns the cancellable process
+and discards results after switching libraries or updating the index.
+
+The serialized worker method `refresh` accepts `{files: [...]}`. It checks the
+expected previous hashes, saves a snapshot with only those file hashes replaced,
+and returns the library summary. Electron sends only text-verified refreshes
+from its current background check and defers saving until foreground work ends.
+Vectors, page hashes, and the last indexing timestamp remain unchanged.

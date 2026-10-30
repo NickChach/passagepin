@@ -33,6 +33,7 @@ export function useDesktopState(api: DesktopAPI, onError: (message: string) => v
 				setState((s) => ({ ...s, operation: event.data }));
 				setProgress(emptyIndexProgress());
 			}
+			if (event.kind === "check") setState((s) => ({ ...s, check: event.data }));
 			if (event.kind === "library") setState((s) => ({ ...s, library: event.data }));
 			if (event.kind === "libraries") {
 				setState((s) => ({ ...s, ...event.data }));
