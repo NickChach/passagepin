@@ -142,6 +142,7 @@ h1,h2,p { margin: 0; }
 .last-update { color: var(--subtle); font-size: 12px; margin-bottom: 18px; }
 .small-warning { font-size: 12px; color: var(--warning); line-height: 1.55; margin: 12px 0; }
 .index-progress { font-size: 12px; margin-top: 20px; color: var(--secondary-ink); }
+.index-cancel { margin-top: 8px; }
 .index-progress strong { font-weight: 600; }
 .index-progress-message, .index-progress-summary { margin: 8px 0; line-height: 1.5; }
 .index-file-list { list-style: none; margin: 14px 0; padding: 0; display: grid; gap: 16px; max-height: 300px; overflow-y: auto; }
@@ -180,6 +181,16 @@ summary { cursor: pointer; color: var(--muted); }
 .message { display: flex; gap: 8px; flex-wrap: wrap; padding: 13px 18px; margin: 18px 40px 0; border-radius: 5px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .message.error { color: var(--error-ink); background: var(--error-surface); border-left: 3px solid var(--error-border); }
 .message.notice { color: var(--positive-ink); background: var(--notice-surface); }
+/* A pending library update needs a readable message and a distinct action group. */
+.library-check { align-items: center; gap: 18px 24px; padding: 18px 20px; border: 1px solid var(--border); border-left: 3px solid var(--accent); background: var(--preview); color: var(--ink); font-size: 13px; }
+.library-check-content { flex: 1 1 340px; min-width: 0; max-width: 72ch; }
+.library-check-content > strong { display: block; font-weight: 650; }
+.library-check-summary { margin-top: 4px; color: var(--secondary-ink); }
+.library-check-hint { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.library-check-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; margin-left: auto; }
+.library-check-actions .button { min-width: 76px; }
+.library-check-errors { margin-top: 8px; }
+.library-check-errors ul { max-height: 180px; overflow-y: auto; margin: 8px 0 0; padding-left: 20px; color: var(--secondary-ink); }
 .index-report { margin: 18px 40px 0; padding: 14px 18px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; line-height: 1.6; }
 .index-report summary { color: var(--secondary-ink); font-weight: 600; }
 .index-report p { margin-top: 8px; overflow-wrap: anywhere; color: var(--muted); }

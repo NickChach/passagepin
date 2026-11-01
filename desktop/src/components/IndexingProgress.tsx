@@ -43,7 +43,8 @@ export default function IndexingProgress({
 				</p>
 			)}
 			<button
-				className="text-button"
+				type="button"
+				className="button secondary wide index-cancel"
 				onClick={onCancel}
 			>
 				Cancel indexing
