@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import Icon from "./Icon";
+import appIcon from "../../assets/icon.svg";
 
 interface SidebarProps {
 	children: ReactNode;
@@ -9,9 +9,7 @@ export default function Sidebar({ children }: SidebarProps) {
 	return (
 		<aside className="sidebar" aria-label="PDF library">
 			<div className="brand">
-				<span className="brand-mark">
-					<Icon name="document" size={25} />
-				</span>
+				<img className="brand-mark" src={appIcon} alt="" />
 				<span>PassagePin</span>
 			</div>
 			{children}
