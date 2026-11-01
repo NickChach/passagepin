@@ -50,6 +50,8 @@ type Index struct {
 	UpdatedAt   time.Time   `json:"updated_at"`
 	Documents   []Document  `json:"documents"`
 	Issues      []FileIssue `json:"issues,omitempty"`
+	// Older format-9 indexes default to recursive until their next update.
+	NonRecursive bool `json:"non_recursive,omitempty"`
 }
 
 type FileIssue struct {
@@ -246,6 +248,15 @@ func validateVector(vector []float32) error {
 
 // Save replaces the index only after the entire new index is flushed to disk.
 func (idx *Index) Save(path string) error {
+	return idx.SaveContext(context.Background(), path)
+}
+
+// SaveContext honors cancellation up to the atomic replacement of the index.
+// Once renamed, the save is committed and callers must adopt the new snapshot.
+func (idx *Index) SaveContext(ctx context.Context, path string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := idx.Validate(); err != nil {
 		return err
 	}
@@ -265,6 +276,9 @@ func (idx *Index) Save(path string) error {
 		return err
 	}
 	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	return os.Rename(f.Name(), path)

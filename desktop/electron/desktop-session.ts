@@ -19,6 +19,7 @@ export class DesktopSession {
   private checking: AbortController | null = null;
   private checkGeneration = 0;
   private pendingRefresh: { generation: number; files: FileRefresh[] } | null = null;
+  private refreshDone: Promise<void> | null = null;
   constructor(private readonly libraries: Registry, private readonly indexDirectory: string,
     private readonly createWorker: () => WorkerConnection, private readonly publish: (event: WorkerEvent) => void, private readonly checker?: LibraryChecker) {}
   start(): Promise<void> { this.startup = this.initialize(); return this.startup; }
@@ -77,6 +78,9 @@ export class DesktopSession {
   }
   private async operation<T>(name: string, action: () => Promise<T>): Promise<T> {
     await this.startup;
+    // Automatic metadata writes may start between a search reply and its
+    // preview request. Let foreground actions wait for that write to finish.
+    if (this.refreshDone) await this.refreshDone;
     if (!this.client || !this.state.ready || this.state.error) throw new Error(this.state.error || 'The search engine is still starting.');
     if (this.state.operation) throw new Error('Wait for the current operation or cancel it first.');
     if (['opening', 'indexing', 'removing'].includes(name)) this.stopCheck();
@@ -116,6 +120,8 @@ export class DesktopSession {
     const pending = this.pendingRefresh;
     if (!pending || pending.generation !== this.checkGeneration || this.state.operation || !this.client || !this.state.ready) return;
     this.pendingRefresh = null;
+    let finish!: () => void;
+    this.refreshDone = new Promise<void>(resolve => { finish = resolve; });
     this.state.operation = 'refreshing'; this.publish({ kind: 'operation', data: 'refreshing' });
     try {
       // Leave room for protocol framing below the worker's 1 MiB limit.
@@ -133,7 +139,10 @@ export class DesktopSession {
       if (batch.length) await save();
     } catch (error) {
       if (pending.generation === this.checkGeneration) this.publishCheck({ status: 'error', message: error instanceof Error ? error.message : String(error) });
-    } finally { this.state.operation = null; this.publish({ kind: 'operation', data: null }); }
+    } finally {
+      this.state.operation = null; this.publish({ kind: 'operation', data: null });
+      this.refreshDone = null; finish();
+    }
   }
   private publishLibraries(): void {
     const saved = this.libraries.snapshot();

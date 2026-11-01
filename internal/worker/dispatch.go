@@ -38,7 +38,7 @@ func (e *Engine) Handle(ctx context.Context, req Request, emit func(index.Progre
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if err := next.Save(e.indexPath); err != nil {
+		if err := next.SaveContext(ctx, e.indexPath); err != nil {
 			return nil, err
 		}
 		e.idx = next

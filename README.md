@@ -170,6 +170,9 @@ documents reuse their vectors and reports; use `--rebuild` to retry their failed
 memory without changing source files. Cancellation, inference failures, directory traversal failures, and index write failures still abort
 the update and leave the previous saved index intact. Avoid running multiple index writers against the same index path at once.
 
+Library checks preserve the indexing scope, including `--recursive=false`. For an existing format-9 index created before scope was recorded,
+run an update with the original `--recursive=false` option once; no rebuild is needed. Older indexes default to recursive checks until updated.
+
 Indexing overlaps PDF reading with embedding. By default, up to two independent PDF readers feed a bounded queue to up to two embedding
 workers (one of each when Go's CPU limit is one). Each model operation uses one inference thread. Use `--index-workers`,
 `--embedding-workers`, and `--threads` to tune the CPU and memory tradeoff; `--timings` reports where indexing time goes. See

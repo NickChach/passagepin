@@ -250,7 +250,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 			return err
 		}
 		saving := time.Now()
-		if err := idx.Save(*path); err != nil {
+		if err := idx.SaveContext(ctx, *path); err != nil {
 			return err
 		}
 		stats.Timings.Saving = time.Since(saving)

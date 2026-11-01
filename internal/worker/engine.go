@@ -170,7 +170,7 @@ func (e *Engine) BuildIndex(ctx context.Context, p IndexParams, emit func(index.
 		return IndexResult{}, err
 	}
 	saving := time.Now()
-	if err := idx.Save(e.indexPath); err != nil {
+	if err := idx.SaveContext(ctx, e.indexPath); err != nil {
 		return IndexResult{}, err
 	}
 	stats.Timings.Saving = time.Since(saving)

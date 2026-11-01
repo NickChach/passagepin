@@ -103,3 +103,47 @@ func TestCheckReportsUnreadableChangedPDFAndCancellation(t *testing.T) {
 		t.Fatal("ignored cancellation")
 	}
 }
+
+func TestCheckPreservesNonRecursiveScopeAcrossReloadAndUpdate(t *testing.T) {
+	root := makeFiles(t, 1)
+	if err := os.Mkdir(filepath.Join(root, "nested"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "nested", "excluded.pdf"), []byte("pdf"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	build := func(old *Index) *Index {
+		t.Helper()
+		idx, _, err := Build(context.Background(), root, "weights", false, old, &fakePDF{pages: []string{"text"}}, &fakeModel{}, io.Discard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return idx
+	}
+	idx := build(nil)
+	indexPath := filepath.Join(t.TempDir(), "index.json")
+	if err := idx.Save(indexPath); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, snapshot := range []*Index{loaded, build(loaded)} {
+		r, err := snapshot.Check(context.Background())
+		if err != nil || r.AddedFiles != 0 || r.RemovedFiles != 0 {
+			t.Fatalf("excluded file reported: %+v %v", r, err)
+		}
+	}
+	// Legacy format-9 indexes retain the previous recursive default. An update
+	// with the original CLI option records their scope without a rebuild.
+	loaded.NonRecursive = false
+	r, err := loaded.Check(context.Background())
+	if err != nil || r.AddedFiles != 1 {
+		t.Fatalf("recursive default: %+v %v", r, err)
+	}
+	r, err = build(loaded).Check(context.Background())
+	if err != nil || r.AddedFiles != 0 {
+		t.Fatalf("scope migration: %+v %v", r, err)
+	}
+}

@@ -152,7 +152,7 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 			cache[doc.Filename] = doc
 		}
 	}
-	idx := &Index{Version: Version, Root: root, Model: embedding.ModelID, Fingerprint: fingerprint, UpdatedAt: time.Now().UTC(), Documents: []Document{}}
+	idx := &Index{Version: Version, Root: root, NonRecursive: !recursive, Model: embedding.ModelID, Fingerprint: fingerprint, UpdatedAt: time.Now().UTC(), Documents: []Document{}}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var firstErr error

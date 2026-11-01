@@ -54,7 +54,13 @@ func (idx *Index) Check(ctx context.Context) (CheckResult, error) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if entry.IsDir() || !entry.Type().IsRegular() || !strings.EqualFold(filepath.Ext(entry.Name()), ".pdf") {
+		if entry.IsDir() {
+			if path != idx.Root && idx.NonRecursive {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !entry.Type().IsRegular() || !strings.EqualFold(filepath.Ext(entry.Name()), ".pdf") {
 			return nil
 		}
 		rel, err := filepath.Rel(idx.Root, path)

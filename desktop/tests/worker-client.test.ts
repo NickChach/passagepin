@@ -64,3 +64,16 @@ test('real Go worker keeps one process and model for indexing and repeated searc
 
   await assert.rejects(client.request('page', { filename: '../secret.pdf', page: 1 }), /not in the active library/);
 });
+
+test('failed spawns allow stop both during startup and after rejection', { timeout: 3000 }, async () => {
+  const work = await mkdtemp(path.join(os.tmpdir(), 'passagepin-missing-worker-'));
+  try {
+    for (const stopDuringStartup of [false, true]) {
+      const client = new WorkerClient(path.join(work, 'missing-worker'));
+      const starting = assert.rejects(client.start(), (error: NodeJS.ErrnoException) => error.code === 'ENOENT');
+      if (stopDuringStartup) await client.stop();
+      await starting;
+      await client.stop();
+    }
+  } finally { await rm(work, { recursive: true, force: true }); }
+});

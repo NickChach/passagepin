@@ -89,11 +89,13 @@ Cancellation is handled while an operation is running:
 {"id":"cancel-1","method":"cancel","params":{"target":"2"}}
 ```
 
-It responds with `{"cancelled":true}` when the active ID matched. The operation
-subsequently returns an error with code `cancelled`; response ordering is not
-fixed. Cancellation is cooperative between bounded inference calls. Failed or
-cancelled builds preserve the previous saved index and in-memory library. An
-individual page extraction failure excludes that page and continues with later
+It responds with `{"cancelled":true}` when the active ID matched. Operations
+observe cancellation cooperatively between bounded inference calls and before
+committing an index save, returning an error with code `cancelled`; response
+ordering is not fixed. Failed or cancelled builds preserve the previous saved
+index and in-memory library. After the atomic index replacement, the new snapshot
+is committed and a later cancellation cannot roll it back.
+An individual page extraction failure excludes that page and continues with later
 physical pages. A document with healthy searchable pages is retained with a
 partial report; a document with failed pages and no searchable pages is skipped.
 Unreadable document structure or recovery that changes page identity discards

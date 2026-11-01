@@ -128,3 +128,38 @@ test('text-verified metadata refresh waits for an active search', async t => {
   assert.equal(session.state.operation, null);
   await session.stop();
 });
+
+test('automatic preview waits for a refresh that completed checking during search', async t => {
+  let finishCheck!: (result: Awaited<ReturnType<LibraryChecker>>) => void;
+  const checker: LibraryChecker = () => new Promise(resolve => { finishCheck = resolve; });
+  const { session, first, workers } = await setup(t, checker);
+  workers[0].indexed = true;
+  await session.chooseFolder(async () => first);
+  let finishSearch!: () => void;
+  let finishRefresh!: () => void;
+  const searchGate = new Promise<void>(resolve => { finishSearch = resolve; });
+  const refreshGate = new Promise<void>(resolve => { finishRefresh = resolve; });
+  const requests: string[] = [];
+  workers[0].request = async (method, ..._args) => {
+    requests.push(method);
+    if (method === 'search') { await searchGate; return { query: 'q', results: [{ filename: 'book.pdf', page: 1, score: .8 }] } as never; }
+    if (method === 'refresh') { await refreshGate; return session.state.library as never; }
+    assert.equal(method, 'page');
+    return { filename: 'book.pdf', page: 1, text: 'preview', path: '/book.pdf' } as never;
+  };
+  const search = session.search('q', 10, 0);
+  await new Promise(resolve => setImmediate(resolve));
+  finishCheck({ changed_pages: 0, added_files: 0, removed_files: 0, errors: [], refresh: [{ filename: 'book.pdf', before: 'a'.repeat(64), after: 'b'.repeat(64) }] });
+  await new Promise(resolve => setImmediate(resolve));
+  finishSearch();
+  const found = await search;
+  assert.equal(session.state.operation, 'refreshing');
+  const preview = session.page(found.results[0].filename, found.results[0].page);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(requests, ['search', 'refresh']);
+  finishRefresh();
+  assert.equal((await preview).text, 'preview');
+  assert.deepEqual(requests, ['search', 'refresh', 'page']);
+  assert.equal(session.state.operation, null);
+  await session.stop();
+});

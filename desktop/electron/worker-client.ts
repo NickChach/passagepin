@@ -56,7 +56,13 @@ export class WorkerClient extends EventEmitter {
           else pending.resolve(result);
         } catch (error) { this.fail(error instanceof Error ? error : new Error(String(error))); child.kill(); }
       });
-      child.once('error', (error) => { clearTimeout(timer); reject(error); this.fail(error); });
+      child.once('error', (error) => {
+        clearTimeout(timer);
+        // A failed spawn emits error/close without exit. There is no running
+        // process for stop() to wait for in that case.
+        if (child.pid === undefined) { lines.close(); if (this.child === child) this.child = null; }
+        reject(error); this.fail(error);
+      });
       child.once('exit', (code, signal) => {
         clearTimeout(timer); lines.close(); this.child = null;
         const detail = this.stderr.trim();
@@ -92,7 +98,10 @@ export class WorkerClient extends EventEmitter {
     this.stopping = true;
     const child = this.child;
     if (!child) return;
-    const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
+    const exited = new Promise<void>((resolve) => {
+      const finished = () => { child.off('exit', finished); child.off('close', finished); resolve(); };
+      child.once('exit', finished); child.once('close', finished);
+    });
     // EOF cancels an active request, waits for it, and releases ONNX cleanly.
     child.stdin.end();
     const timer = setTimeout(() => child.kill('SIGKILL'), 5000);

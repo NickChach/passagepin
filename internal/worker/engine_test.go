@@ -332,3 +332,49 @@ func TestProtocolCancellationBusyAndShutdown(t *testing.T) {
 		t.Fatal("worker did not stop")
 	}
 }
+
+// Cancel when a real save has created its temporary file, without relying on
+// serialization speed or scheduler timing.
+type cancelDuringSave struct {
+	context.Context
+	cancel    context.CancelFunc
+	directory string
+}
+
+func (c cancelDuringSave) Err() error {
+	files, _ := filepath.Glob(filepath.Join(c.directory, ".index-*"))
+	if len(files) > 0 {
+		c.cancel()
+	}
+	return c.Context.Err()
+}
+
+func TestCancellationDuringSavePreservesLibrary(t *testing.T) {
+	root, indexPath := library(t)
+	engine := New(&fakeModel{}, "test-model")
+	if _, err := engine.Open(context.Background(), OpenParams{Directory: root, IndexPath: indexPath}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.BuildIndex(context.Background(), IndexParams{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	previous := engine.idx
+	before, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	saveCtx := cancelDuringSave{ctx, cancel, filepath.Dir(indexPath)}
+	if _, err := engine.BuildIndex(saveCtx, IndexParams{Rebuild: true}, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected cancellation during save, got %v", err)
+	}
+	after, err := os.ReadFile(indexPath)
+	if err != nil || !bytes.Equal(before, after) || engine.idx != previous {
+		t.Fatalf("cancelled save replaced the library: %v", err)
+	}
+	files, _ := filepath.Glob(filepath.Join(filepath.Dir(indexPath), ".index-*"))
+	if len(files) != 0 {
+		t.Fatalf("temporary indexes left behind: %v", files)
+	}
+}
