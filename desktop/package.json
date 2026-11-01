@@ -9,8 +9,10 @@
 	"scripts": {
 		"build": "tsc --noEmit && vite build && tsc -p tsconfig.electron.json",
 		"start": "npm run build && electron .",
-		"test": "node --import tsx --test tests/*.test.ts",
-		"test:e2e": "npm run build && playwright test",
+		"test": "node scripts/test.mjs integration",
+		"test:unit": "node --import tsx --test tests/*.test.ts",
+		"test:e2e": "node scripts/test.mjs e2e",
+		"test:verify": "node scripts/test.mjs verify",
 		"package:dir": "npm run build && node scripts/stage-worker.mjs && electron-builder --dir",
 		"package:linux": "npm run build && node scripts/stage-worker.mjs && electron-builder --linux AppImage && node scripts/archive.mjs"
 	},

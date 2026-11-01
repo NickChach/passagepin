@@ -1,4 +1,4 @@
-.PHONY: build bundle desktop desktop-package test vet
+.PHONY: build bundle desktop desktop-package test vet verify
 
 MODEL_DIR ?= .models
 RUNTIME_DIR ?= .runtime/onnxruntime-linux-x64-1.22.0
@@ -21,3 +21,8 @@ test:
 
 vet:
 	go vet ./...
+
+verify:
+	go test -race ./...
+	go vet ./...
+	cd desktop && npm run test:verify

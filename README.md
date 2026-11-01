@@ -295,6 +295,11 @@ from formats 7 and 8, including publisher symbol mappings and safe cross-referen
 ## Verification
 
 ```sh
+# Full source verification, including desktop integration and Electron journeys.
+# Requires local bundle assets, desktop dependencies, and a working display.
+make verify
+
+# Fast Go-only checks:
 make test
 make vet
 

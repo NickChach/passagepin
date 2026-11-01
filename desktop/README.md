@@ -166,17 +166,31 @@ process exit also closes its pipes; the Go worker then exits on EOF.
 
 ```sh
 # Repository root:
-go test -race ./...
-go vet ./...
+make verify
 
 # desktop/:
-npm test
-npm run test:e2e
+npm run test:unit   # Fast checks without Go/model/runtime assets
+npm test           # Build a fresh bundled worker, then run Node tests
+npm run test:e2e   # Build a fresh bundled worker and Electron, then run Playwright
+npm run test:verify # Build once, then run Node and Electron tests
 
 # Verify the packaged application and its packaged worker:
 PDFSEARCH_TEST_PACKAGED_BINARY="$PWD/releases/linux-unpacked/passagepin" \
   npm run test:e2e
 ```
+
+`make verify` runs Go race tests and vet, then the combined desktop verification.
+Desktop integration and end-to-end commands build the current Go source into a
+temporary bundled executable and remove it after the run. They override any
+`PDFSEARCH_WORKER` setting, use an isolated native cache, and fail if the worker
+cannot be built or tested. No existing `dist` worker is used. Packaged tests still
+use the explicitly selected package and its packaged worker.
+
+These commands require the same local assets as `make bundle` (currently Linux
+amd64): `.models` and `.runtime/onnxruntime-linux-x64-1.22.0`. Absolute paths in
+`PDFSEARCH_MODEL_DIR` and `PDFSEARCH_TEST_RUNTIME_DIR` can select alternative local
+asset directories. Tests do not download assets. `test:unit` excludes the real
+worker integration test; run `npm test` or `make verify` for that check.
 
 The Node integration test uses the real bundled Go worker and MiniLM model. The
 Electron test uses a generated three-page PDF with a blank middle page, indexes
