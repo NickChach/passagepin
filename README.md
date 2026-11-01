@@ -19,20 +19,19 @@ filesystem access.
 Page previews show the first 200,000 bytes of extracted text, followed by a shortening notice for longer pages. Indexing still uses the full
 extracted page text. Open the PDF in your system viewer to read the complete page.
 
-The current desktop packages target Linux x86-64 with glibc 2.38 or newer. Download the
-[PassagePin 0.8.0 AppImage](https://github.com/NickChach/passagepin/releases/download/v0.7.0/PassagePin-0.8.0-x86_64.AppImage), or visit
-[GitHub Releases](https://github.com/NickChach/passagepin/releases) for available versions and assets. From the directory containing the
-download:
+The current desktop packages target Linux x86-64 with glibc 2.38 or newer. Visit
+[GitHub Releases](https://github.com/NickChach/passagepin/releases) for available versions and assets. For a local 0.9.0 build, from the
+directory containing the AppImage:
 
 ```sh
-chmod +x PassagePin-0.8.0-x86_64.AppImage
-./PassagePin-0.8.0-x86_64.AppImage
+chmod +x PassagePin-0.9.0-x86_64.AppImage
+./PassagePin-0.9.0-x86_64.AppImage
 ```
 
 After making it executable, you can also launch it from a file manager. The AppImage requires an AppImage-capable system, commonly using
 FUSE.
 
-Local packaging of version 0.8.0 writes `PassagePin-0.8.0-x86_64.AppImage` and `PassagePin-0.8.0-x64.tar.gz` under `desktop/releases/`. The
+Local packaging of version 0.9.0 writes `PassagePin-0.9.0-x86_64.AppImage` and `PassagePin-0.9.0-x64.tar.gz` under `desktop/releases/`. The
 archive provides an alternative without the AppImage FUSE requirement: extract it and launch `linux-unpacked/passagepin`.
 
 To rebuild locally after code changes, run `./build.sh` from the repository root. It rebuilds the bundled Go worker and Electron packages
