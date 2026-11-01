@@ -170,11 +170,11 @@ func (e *Engine) BuildIndex(ctx context.Context, p IndexParams, emit func(index.
 		return IndexResult{}, err
 	}
 	saving := time.Now()
-	if err := idx.SaveContext(ctx, e.indexPath); err != nil {
+	if err := e.commit(ctx, idx); err != nil {
 		return IndexResult{}, err
 	}
 	stats.Timings.Saving = time.Since(saving)
-	e.idx, e.issue = idx, ""
+	e.issue = ""
 	return IndexResult{e.summary(), stats}, nil
 }
 
@@ -262,4 +262,35 @@ func (e *Engine) pagePath(filename string, page int) (string, error) {
 		return "", fmt.Errorf("PDF now points outside the indexed directory")
 	}
 	return path, nil
+}
+
+// commit is the only index writer in the engine. Adopt the new snapshot only
+// after its atomic save succeeds; cancellation and write errors retain the old one.
+func (e *Engine) commit(ctx context.Context, next *index.Index) error {
+	if err := next.SaveContext(ctx, e.indexPath); err != nil {
+		return err
+	}
+	e.idx = next
+	return nil
+}
+
+type RefreshParams struct {
+	Files []index.FileRefresh `json:"files"`
+}
+
+func (e *Engine) Refresh(ctx context.Context, p RefreshParams) (Library, error) {
+	if err := ctx.Err(); err != nil {
+		return Library{}, err
+	}
+	if e.idx == nil {
+		return Library{}, fmt.Errorf("index is unavailable")
+	}
+	next, err := e.idx.RefreshFiles(p.Files)
+	if err != nil {
+		return Library{}, err
+	}
+	if err := e.commit(ctx, next); err != nil {
+		return Library{}, err
+	}
+	return e.summary(), nil
 }

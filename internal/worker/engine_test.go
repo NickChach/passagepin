@@ -9,6 +9,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -376,5 +377,52 @@ func TestCancellationDuringSavePreservesLibrary(t *testing.T) {
 	files, _ := filepath.Glob(filepath.Join(filepath.Dir(indexPath), ".index-*"))
 	if len(files) != 0 {
 		t.Fatalf("temporary indexes left behind: %v", files)
+	}
+}
+
+func TestRefreshTransactionPreservesSnapshotOnFailure(t *testing.T) {
+	root, indexPath := library(t)
+	e := New(&fakeModel{}, "test-model")
+	if _, err := e.Open(context.Background(), OpenParams{Directory: root, IndexPath: indexPath}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.BuildIndex(context.Background(), IndexParams{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	previous := e.idx
+	doc := previous.Documents[0]
+	params := RefreshParams{Files: []index.FileRefresh{{Filename: doc.Filename, Before: doc.SHA256, After: strings.Repeat("a", 64)}}}
+	before, err := os.ReadFile(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if _, err := e.Refresh(cancelDuringSave{ctx, cancel, filepath.Dir(indexPath)}, params); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled refresh: %v", err)
+	}
+	after, err := os.ReadFile(indexPath)
+	if err != nil || !bytes.Equal(before, after) || e.idx != previous {
+		t.Fatalf("cancelled refresh committed: %v", err)
+	}
+	// A failed save must also leave the resident snapshot intact.
+	e.indexPath = t.TempDir()
+	if _, err := e.Refresh(context.Background(), params); err == nil || e.idx != previous {
+		t.Fatal("failed save committed refresh")
+	}
+	e.indexPath = indexPath
+	if _, err := e.Refresh(context.Background(), params); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := index.Load(indexPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Documents[0].SHA256 != params.Files[0].After || !loaded.UpdatedAt.Equal(previous.UpdatedAt) || !reflect.DeepEqual(loaded.Documents[0].Pages, doc.Pages) {
+		t.Fatal("refresh changed vectors/timestamp or failed to save hash")
+	}
+	committed := e.idx
+	if _, err := e.Refresh(context.Background(), params); err == nil || e.idx != committed {
+		t.Fatal("stale refresh replaced snapshot")
 	}
 }

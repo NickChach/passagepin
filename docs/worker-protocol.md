@@ -148,3 +148,8 @@ expected previous hashes, saves a snapshot with only those file hashes replaced,
 and returns the library summary. Electron sends only text-verified refreshes
 from its current background check and defers saving until foreground work ends.
 Vectors, page hashes, and the last indexing timestamp remain unchanged.
+
+The worker dispatcher only decodes and routes refresh requests. The engine owns
+the refresh transaction and shares its atomic save-and-adopt step with index
+builds. Builds and checks use the same PDF discovery rules; the checker’s reader
+factory can be substituted in tests while production uses the Go PDF reader.

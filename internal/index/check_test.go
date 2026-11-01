@@ -2,9 +2,12 @@ package index
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/darkearl/semantic-search/internal/pdf"
@@ -145,5 +148,52 @@ func TestCheckPreservesNonRecursiveScopeAcrossReloadAndUpdate(t *testing.T) {
 	r, err = build(loaded).Check(context.Background())
 	if err != nil || r.AddedFiles != 0 {
 		t.Fatalf("scope migration: %+v %v", r, err)
+	}
+}
+
+type controlledCheckReader struct {
+	fakePDF
+	read   func(context.Context, string, int) (string, error)
+	closed bool
+}
+
+func (r *controlledCheckReader) PageText(ctx context.Context, path string, page int) (string, error) {
+	return r.read(ctx, path, page)
+}
+func (r *controlledCheckReader) Close() error { r.closed = true; return nil }
+
+func TestCheckerReaderFailuresAndCancellationReleaseReader(t *testing.T) {
+	for _, cancelled := range []bool{false, true} {
+		t.Run(fmt.Sprint(cancelled), func(t *testing.T) {
+			root := makeFiles(t, 1)
+			idx, _, err := Build(context.Background(), root, "weights", true, nil, &fakePDF{pages: []string{"text"}}, &fakeModel{}, io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(root, "00.pdf"), []byte("changed"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			reader := &controlledCheckReader{fakePDF: fakePDF{pages: []string{"text"}}}
+			reader.read = func(context.Context, string, int) (string, error) {
+				if cancelled {
+					cancel()
+					return "", ctx.Err()
+				}
+				return "", errors.New("controlled page failure")
+			}
+			result, err := idx.check(ctx, func() (checkExtractor, error) { return reader, nil })
+			if !reader.closed || len(result.Refresh) != 0 {
+				t.Fatalf("reader cleanup or unsafe refresh: %+v", result)
+			}
+			if cancelled {
+				if !errors.Is(err, context.Canceled) {
+					t.Fatalf("cancellation lost: %v", err)
+				}
+			} else if err != nil || len(result.Errors) != 1 || !strings.Contains(result.Errors[0], "controlled page failure") {
+				t.Fatalf("page failure lost: %+v %v", result, err)
+			}
+		})
 	}
 }

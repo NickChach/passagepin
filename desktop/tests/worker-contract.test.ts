@@ -47,3 +47,16 @@ test('skipped PDF hashes are optional, but must be valid when present', () => {
   assert.throws(() => parseWorkerResult('open', { ...state, issues: [{ ...state.issues[0], sha256: 'invalid' }] }));
   assert.throws(() => parseWorkerResult('open', { ...state, issues: [{ ...state.issues[0], kind: 'recovered' }] }));
 });
+
+// Operation names and check-state payloads are checked without changing the
+// runtime IPC representation.
+function stateTypes() {
+  // @ts-expect-error unknown operation name
+  const operation: import('../electron/types').Operation = 'index';
+  // @ts-expect-error an error check requires a diagnostic
+  const error: import('../electron/types').LibraryCheck = { status: 'error' };
+  // @ts-expect-error a completed check requires counts and errors
+  const changed: import('../electron/types').LibraryCheck = { status: 'changed' };
+  void [operation, error, changed];
+}
+void stateTypes;

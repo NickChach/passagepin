@@ -22,27 +22,11 @@ func (e *Engine) Handle(ctx context.Context, req Request, emit func(index.Progre
 	}
 	switch req.Method {
 	case "refresh":
-		var p struct {
-			Files []index.FileRefresh `json:"files"`
-		}
+		var p RefreshParams
 		if err := decode(req.Params, &p); err != nil {
 			return nil, err
 		}
-		if e.idx == nil {
-			return nil, fmt.Errorf("index is unavailable")
-		}
-		next, err := e.idx.RefreshFiles(p.Files)
-		if err != nil {
-			return nil, err
-		}
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		if err := next.SaveContext(ctx, e.indexPath); err != nil {
-			return nil, err
-		}
-		e.idx = next
-		return e.summary(), nil
+		return e.Refresh(ctx, p)
 	case "status":
 		return e.summary(), nil
 	case "open":

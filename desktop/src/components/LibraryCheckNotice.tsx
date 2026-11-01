@@ -9,9 +9,9 @@ export default function LibraryCheckNotice({ check, busy, onUpdate }: { check?: 
   if (check.status === 'error') return <div className="message notice" role="status">Couldn’t check this library. {check.message} Select the library again to retry, or update its index.</div>;
 
   const changes = [
-    [check.changed_pages ?? 0, 'changed page', 'changed pages'],
-    [check.added_files ?? 0, 'added PDF', 'added PDFs'],
-    [check.removed_files ?? 0, 'removed PDF', 'removed PDFs'],
+    [check.changed_pages, 'changed page', 'changed pages'],
+    [check.added_files, 'added PDF', 'added PDFs'],
+    [check.removed_files, 'removed PDF', 'removed PDFs'],
   ] as const;
   const summary = changes.filter(([count]) => count > 0)
     .map(([count, singular, plural]) => `${count.toLocaleString()} ${count === 1 ? singular : plural}`).join(', ');
@@ -23,9 +23,9 @@ export default function LibraryCheckNotice({ check, busy, onUpdate }: { check?: 
         {summary && <p className="library-check-summary">{summary}.</p>}
         <p className="library-check-hint">Results reflect the last saved index until you update.</p>
       </>}
-      {Boolean(check.errors?.length) && <details className="library-check-errors">
-        <summary>Files needing attention ({check.errors!.length})</summary>
-        <ul>{check.errors!.map((error, i) => <li key={i}>{error}</li>)}</ul>
+      {Boolean(check.errors.length) && <details className="library-check-errors">
+        <summary>Files needing attention ({check.errors.length})</summary>
+        <ul>{check.errors.map((error, i) => <li key={i}>{error}</li>)}</ul>
       </details>}
     </div>
     <div className="library-check-actions">

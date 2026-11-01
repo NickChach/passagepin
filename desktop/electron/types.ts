@@ -21,19 +21,23 @@ export type Progress =
   | { phase: 'embedding' | 'completed'; filename: string; page: number; pages: number; reason?: never; recovered?: boolean; partial?: boolean }
   | { phase: 'reused'; filename: string; pages: number; page?: never; reason?: never; recovered?: boolean; partial?: boolean }
   | { phase: 'skipped'; filename: string; reason: string; page?: number; pages?: never; recovered?: never; partial?: never };
+export type Operation = 'opening' | 'renaming' | 'removing' | 'indexing' | 'searching' | 'reading' | 'opening-pdf' | 'refreshing' | 'restarting';
 export interface WorkerReady { protocol: number; pid: number; model_loads: number }
 export type WorkerEvent =
   | { kind: "check"; data: LibraryCheck | null }
   | { kind: 'starting' }
   | { kind: 'ready'; data: WorkerReady }
   | { kind: 'progress'; data: Progress }
-  | { kind: 'operation'; data: string | null }
+  | { kind: 'operation'; data: Operation | null }
   | { kind: 'library'; data: Library | null }
   | { kind: 'libraries'; data: SavedLibraries }
   | { kind: 'library-error'; data: string | null }
   | { kind: 'failed'; data: string };
-export interface LibraryCheck { status: "checking" | "current" | "changed" | "error"; changed_pages?: number; added_files?: number; removed_files?: number; errors?: string[]; message?: string }
-export interface State extends SavedLibraries { check?: LibraryCheck | null; ready: WorkerReady | null; error: string | null; operation: string | null; library: Library | null; libraryError: string | null }
+export type LibraryCheck =
+  | { status: 'checking'; message?: never; changed_pages?: never; added_files?: never; removed_files?: never; errors?: never }
+  | { status: 'error'; message: string; changed_pages?: never; added_files?: never; removed_files?: never; errors?: never }
+  | { status: 'current' | 'changed'; changed_pages: number; added_files: number; removed_files: number; errors: string[]; message?: never };
+export interface State extends SavedLibraries { check?: LibraryCheck | null; ready: WorkerReady | null; error: string | null; operation: Operation | null; library: Library | null; libraryError: string | null }
 export interface DesktopAPI {
   getState(): Promise<State>;
   chooseFolder(): Promise<Library | null>;

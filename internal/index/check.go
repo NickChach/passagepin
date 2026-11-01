@@ -4,9 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
-	"io/fs"
+	"io"
 	"path/filepath"
-	"strings"
 
 	"github.com/darkearl/semantic-search/internal/pdf"
 )
@@ -29,6 +28,17 @@ type CheckResult struct {
 // only one page's text at a time. A caller must discard results after a library
 // switch or index update, and serialize any metadata save with its index writer.
 func (idx *Index) Check(ctx context.Context) (CheckResult, error) {
+	return idx.check(ctx, func() (checkExtractor, error) { return pdf.New() })
+}
+
+// The checker owns each reader it creates. Tests can supply controlled page
+// failures without changing the normal PDF implementation.
+type checkExtractor interface {
+	Extractor
+	io.Closer
+}
+
+func (idx *Index) check(ctx context.Context, newExtractor func() (checkExtractor, error)) (CheckResult, error) {
 	r := CheckResult{Errors: []string{}, Refresh: []FileRefresh{}}
 	if err := idx.Validate(); err != nil {
 		return r, err
@@ -47,22 +57,7 @@ func (idx *Index) Check(ctx context.Context) (CheckResult, error) {
 		}
 	}
 	seen := make(map[string]bool)
-	err := filepath.WalkDir(idx.Root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			if path != idx.Root && idx.NonRecursive {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !entry.Type().IsRegular() || !strings.EqualFold(filepath.Ext(entry.Name()), ".pdf") {
-			return nil
-		}
+	err := walkPDFs(ctx, idx.Root, !idx.NonRecursive, func(path string) error {
 		rel, err := filepath.Rel(idx.Root, path)
 		if err != nil {
 			return err
@@ -87,7 +82,11 @@ func (idx *Index) Check(ctx context.Context) (CheckResult, error) {
 		if old.SHA256 == before {
 			return nil
 		}
-		extractor, _ := pdf.New()
+		extractor, err := newExtractor()
+		if err != nil {
+			r.Errors = append(r.Errors, fmt.Sprintf("%s: %v", rel, err))
+			return ctx.Err()
+		}
 		defer extractor.Close()
 		count, err := extractor.PageCount(ctx, path)
 		if err != nil {

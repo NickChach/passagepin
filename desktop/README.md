@@ -216,6 +216,10 @@ Electron suite also exercises this flow using a simulated older index version.
 `electron/desktop-session.ts` coordinates worker operations and library selection,
 including rollback when saving selection fails. Its worker and library registry
 are injected so these transitions can be tested without launching Electron.
+`electron/check-coordinator.ts` owns background-check cancellation, stale-result
+rejection and refresh batching. The session retains the operation guard and
+serializes metadata writes with foreground requests, including automatic previews.
+Check states and operation names share typed contracts with the renderer.
 
 The renderer composes views in `src/App.tsx`; `use-workspace.ts` coordinates UI
 actions, `use-desktop-state.ts` subscribes to worker state and indexing progress,

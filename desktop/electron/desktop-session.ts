@@ -1,9 +1,10 @@
-import type { LibraryChecker, FileRefresh } from './library-check';
+import { CheckCoordinator, refreshBatches } from './check-coordinator';
+import type { LibraryChecker } from './library-check';
 import { mkdir, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { libraryID, type LibraryStore } from './library-store';
 import type { WorkerClient } from './worker-client';
-import type { Library, SavedLibrary, State, WorkerEvent, WorkerMethods, Progress } from './types';
+import type { Library, SavedLibrary, State, WorkerEvent, WorkerMethods, Progress, Operation } from './types';
 
 export type WorkerConnection = Pick<WorkerClient, 'start' | 'stop' | 'cancel' | 'request'> & {
  on(event: 'progress', listener: (data: Progress) => void): unknown;
@@ -16,12 +17,14 @@ export class DesktopSession {
   readonly state: State = { ready: null, error: null, operation: null, library: null, libraries: [], activeLibraryId: null, libraryError: null };
   private client: WorkerConnection | null = null;
   private startup: Promise<void> | null = null;
-  private checking: AbortController | null = null;
-  private checkGeneration = 0;
-  private pendingRefresh: { generation: number; files: FileRefresh[] } | null = null;
+  private readonly checks: CheckCoordinator;
   private refreshDone: Promise<void> | null = null;
   constructor(private readonly libraries: Registry, private readonly indexDirectory: string,
-    private readonly createWorker: () => WorkerConnection, private readonly publish: (event: WorkerEvent) => void, private readonly checker?: LibraryChecker) {}
+    private readonly createWorker: () => WorkerConnection, private readonly publish: (event: WorkerEvent) => void, checker?: LibraryChecker) {
+    this.checks = new CheckCoordinator(checker, data => {
+      this.state.check = data; this.publish({ kind: 'check', data });
+    }, () => { void this.flushRefresh(); });
+  }
   start(): Promise<void> { this.startup = this.initialize(); return this.startup; }
   async stop(): Promise<void> { this.stopCheck(); await this.client?.stop(); }
   async restart(): Promise<State> {
@@ -70,13 +73,13 @@ export class DesktopSession {
   async resolvePDF(filename: string, page: number) {
     return this.libraryRequest('opening-pdf', 'resolve-pdf', { filename, page });
   }
-  private async libraryRequest<M extends 'search' | 'page' | 'resolve-pdf'>(operation: string, method: M, params: WorkerMethods[M]['params']): Promise<WorkerMethods[M]['result']> {
+  private async libraryRequest<M extends 'search' | 'page' | 'resolve-pdf'>(operation: Operation, method: M, params: WorkerMethods[M]['params']): Promise<WorkerMethods[M]['result']> {
     return this.operation(operation, () => {
       this.requireLibrary();
       return this.client!.request(method, params);
     });
   }
-  private async operation<T>(name: string, action: () => Promise<T>): Promise<T> {
+  private async operation<T>(name: Operation, action: () => Promise<T>): Promise<T> {
     await this.startup;
     // Automatic metadata writes may start between a search reply and its
     // preview request. Let foreground actions wait for that write to finish.
@@ -88,57 +91,27 @@ export class DesktopSession {
     try { return await action(); }
     finally { this.state.operation = null; this.publish({ kind: 'operation', data: null }); if (!this.state.check) this.startCheck(); void this.flushRefresh(); }
   }
-  private publishCheck(data: State['check']): void {
-    this.state.check = data; this.publish({ kind: 'check', data: data ?? null });
-  }
-  private stopCheck(): void {
-    this.checkGeneration++; this.checking?.abort(); this.checking = null; this.pendingRefresh = null;
-    this.publishCheck(null);
-  }
+  private stopCheck(): void { this.checks.invalidate(); }
   private startCheck(): void {
     const library = this.state.library;
-    if (!this.checker || !library?.indexed || this.checking || this.state.check) return;
-    const generation = this.checkGeneration;
-    const controller = new AbortController(); this.checking = controller;
-    const indexPath = path.join(this.indexDirectory, libraryID(library.directory) + '.json');
-    this.publishCheck({ status: 'checking' });
-    void this.checker(indexPath, controller.signal).then(result => {
-      if (generation !== this.checkGeneration) return;
-      this.checking = null;
-      const changed = result.changed_pages + result.added_files + result.removed_files > 0 || result.errors.length > 0;
-      this.publishCheck({ status: changed ? 'changed' : 'current', changed_pages: result.changed_pages,
-        added_files: result.added_files, removed_files: result.removed_files, errors: result.errors });
-      if (result.refresh.length) { this.pendingRefresh = { generation, files: result.refresh }; void this.flushRefresh(); }
-    }).catch((error: unknown) => {
-      if (generation !== this.checkGeneration) return;
-      this.checking = null;
-      this.publishCheck({ status: 'error', message: error instanceof Error ? error.message : String(error) });
-    });
+    if (library?.indexed)
+      this.checks.start(path.join(this.indexDirectory, libraryID(library.directory) + '.json'));
   }
   private async flushRefresh(): Promise<void> {
     await this.startup;
-    const pending = this.pendingRefresh;
-    if (!pending || pending.generation !== this.checkGeneration || this.state.operation || !this.client || !this.state.ready) return;
-    this.pendingRefresh = null;
+    if (this.state.operation || !this.client || !this.state.ready) return;
+    const pending = this.checks.takeRefresh();
+    if (!pending) return;
     let finish!: () => void;
     this.refreshDone = new Promise<void>(resolve => { finish = resolve; });
     this.state.operation = 'refreshing'; this.publish({ kind: 'operation', data: 'refreshing' });
     try {
-      // Leave room for protocol framing below the worker's 1 MiB limit.
-      let batch: FileRefresh[] = [];
-      let bytes = 0;
-      const save = async () => {
-        const library = await this.client!.request('refresh', { files: batch });
+      for (const files of refreshBatches(pending.files)) {
+        const library = await this.client.request('refresh', { files });
         this.state.library = library; this.publish({ kind: 'library', data: library });
-      };
-      for (const file of pending.files) {
-        const size = Buffer.byteLength(JSON.stringify(file)) + 1;
-        if (batch.length && bytes + size > 512 * 1024) { await save(); batch = []; bytes = 0; }
-        batch.push(file); bytes += size;
       }
-      if (batch.length) await save();
     } catch (error) {
-      if (pending.generation === this.checkGeneration) this.publishCheck({ status: 'error', message: error instanceof Error ? error.message : String(error) });
+      this.checks.reportRefreshError(pending.generation, error);
     } finally {
       this.state.operation = null; this.publish({ kind: 'operation', data: null });
       this.refreshDone = null; finish();

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { DesktopError } from "../electron/ipc-result";
-import type { DesktopAPI, SavedLibrary, SearchResult } from "../electron/types";
+import type { DesktopAPI, SavedLibrary, SearchResult, Operation } from "../electron/types";
 import { emptyIndexProgress } from "./index-progress";
 import { useDesktopState } from "./use-desktop-state";
 import { useSearchSession } from "./use-search-session";
@@ -14,7 +14,7 @@ export function useWorkspace(api: DesktopAPI) {
 	const [error, setError] = useState<string | null>(null);
 	const { state, setState, progress, setProgress } = useDesktopState(api, setError);
 	const { query, setQuery, lastQuery, results, selected, preview, top, setTop, minimum, setMinimum, clearSearch, readPage, runSearch } = useSearchSession(api);
-	const [action, setAction] = useState<string | null>(null);
+	const [action, setAction] = useState<Operation | null>(null);
 
 	const [notice, setNotice] = useState<string | null>(null);
 
@@ -39,7 +39,7 @@ export function useWorkspace(api: DesktopAPI) {
 		resetLibraryView();
 	}, [library?.directory]);
 
-	async function perform(name: string, work: () => Promise<void>) {
+	async function perform(name: Operation, work: () => Promise<void>) {
 		setAction(name);
 		setError(null);
 		setNotice(null);

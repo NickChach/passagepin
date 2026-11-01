@@ -1,3 +1,4 @@
+import type { Operation } from '../../electron/types';
 import Icon from "./Icon";
 
 interface SearchFormProps {
@@ -8,7 +9,7 @@ interface SearchFormProps {
 	busy: boolean;
 	canSearch: boolean;
 	searching: boolean;
-	operation: string | null;
+	operation: Operation | null;
 	onQueryChange: (query: string) => void;
 	onTopChange: (top: number) => void;
 	onMinimumChange: (minimum: number) => void;

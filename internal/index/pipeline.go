@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -250,23 +248,7 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 		}(extractor)
 	}
 	go func() {
-		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if entry.IsDir() {
-				if path != root && !recursive {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			// Do not follow file or directory symlinks outside the selected tree.
-			if !entry.Type().IsRegular() || !strings.EqualFold(filepath.Ext(entry.Name()), ".pdf") {
-				return nil
-			}
+		err := walkPDFs(ctx, root, recursive, func(path string) error {
 			select {
 			case files <- path:
 				return nil
