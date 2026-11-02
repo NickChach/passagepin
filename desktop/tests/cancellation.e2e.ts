@@ -76,17 +76,29 @@ test('first search and automatic and manual previews expose cancellation', async
     await page.getByRole('button', { name: 'Cancel reading', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Search', exact: true })).toBeEnabled();
 
-    await page.getByRole('list', { name: 'Matching pages' }).getByRole('listitem').click();
+    await page.getByRole('list', { name: 'Matching pages' }).getByRole('button').click();
     await page.getByRole('button', { name: 'Cancel reading', exact: true }).click();
     await expect(page.getByRole('button', { name: 'Search', exact: true })).toBeEnabled();
     await expect(page.getByRole('button', { name: /^Cancel / })).toHaveCount(0);
+    await expect(page.getByText('Page reading was cancelled.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Retry reading page' })).toBeEnabled();
+    await expect(page.getByRole('article').getByText('Reading page…', { exact: true })).toHaveCount(0);
     await application.evaluate(({ ipcMain }) => {
       ipcMain.removeHandler('library:page');
       ipcMain.handle('library:page', () => ({ ok: false, error: { code: 'operation_failed', message: 'Cannot open cancelled.pdf: no such file' } }));
     });
-    await page.getByRole('list', { name: 'Matching pages' }).getByRole('listitem').click();
+    await page.getByRole('list', { name: 'Matching pages' }).getByRole('button').click();
     await expect(page.getByRole('alert')).toContainText('Cannot open cancelled.pdf');
+    await expect(page.getByRole('article')).toContainText('Couldn’t read this page.');
+    await expect(page.getByRole('button', { name: 'Retry reading page' })).toBeEnabled();
     await expect(page.getByText('Stopped. The last saved index is still available.')).toHaveCount(0);
+    await application.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler('library:page');
+      ipcMain.handle('library:page', () => ({ ok: true, value: { filename: 'example.pdf', page: 1, text: 'Recovered preview' } }));
+    });
+    await page.getByRole('button', { name: 'Retry reading page' }).click();
+    await expect(page.getByRole('article')).toContainText('Recovered preview');
+    await expect(page.getByRole('alert')).toHaveCount(0);
 
   } finally {
     await application.close();

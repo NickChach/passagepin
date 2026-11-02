@@ -6,7 +6,7 @@ export default function LibraryCheckNotice({ check, busy, onUpdate }: { check?: 
   useEffect(() => setLater(false), [check]);
   if (!check || check.status === 'current') return null;
   if (check.status === 'checking') return <div className="message notice" role="status">Checking library for changes… You can keep searching.</div>;
-  if (check.status === 'error') return <div className="message notice" role="status">Couldn’t check this library. {check.message} Select the library again to retry, or update its index.</div>;
+  if (check.status === 'error') return <div className="message notice" role="status">Couldn’t check this library. {check.message} Use Check for changes to retry, or update its index.</div>;
 
   const changes = [
     [check.changed_pages, 'changed page', 'changed pages'],

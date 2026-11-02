@@ -243,4 +243,24 @@ re-extract text. Index format 9 requires rebuilding older indexes once. A separa
 process checks the selected library on startup and selection while searches remain
 available. Changed page text and file additions/removals prompt for an update;
 annotation-only changes refresh file hashes quietly. Updating reuses unchanged
-page vectors. Select the library again to check for later external edits.
+page vectors. Use **Check for changes** to check for later external edits without clearing your results.
+
+
+### Library maintenance and help
+
+**Check for changes** runs the background library check while keeping your query,
+results and preview. Searches remain available during the check. **Rebuild index…**
+is a secondary action for compatible indexes too: confirm **Rebuild from scratch**
+to re-extract and embed every PDF, including previously failed pages. This can take
+as long as initial indexing. Cancellation and fatal failures preserve the last
+saved index; original PDFs are unchanged. A rebuild cannot repair an unsupported
+PDF feature by itself.
+
+Cancelled or failed page previews show their state with **Retry reading page**.
+Search results retain native button semantics within an ordered list.
+**About and help** shows the installed version, platform, usage guidance and local
+license notices. Chromium notices open the bundled local notice file in the system
+viewer. These actions require no network access.
+
+These interface changes preserve index format 9 and the embedding fingerprint;
+compatible 0.9 indexes do not require rebuilding.

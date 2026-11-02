@@ -6,6 +6,10 @@ import { unwrapResult } from '../electron/ipc-result';
 export function desktopAPI(transport: DesktopTransport): DesktopAPI {
   return {
     getState: async () => unwrapResult(await transport.getState()),
+    appInfo: async () => unwrapResult(await transport.appInfo()),
+    licenses: async () => unwrapResult(await transport.licenses()),
+    openChromiumNotices: async () => unwrapResult(await transport.openChromiumNotices()),
+    checkLibrary: async () => unwrapResult(await transport.checkLibrary()),
     chooseFolder: async () => unwrapResult(await transport.chooseFolder()),
     selectLibrary: async (id) => unwrapResult(await transport.selectLibrary(id)),
     renameLibrary: async (id, name) => unwrapResult(await transport.renameLibrary(id, name)),

@@ -13,7 +13,7 @@ export function useWorkspace(api: DesktopAPI) {
 
 	const [error, setError] = useState<string | null>(null);
 	const { state, setState, progress, setProgress } = useDesktopState(api, setError);
-	const { query, setQuery, lastQuery, results, selected, preview, top, setTop, minimum, setMinimum, clearSearch, readPage, runSearch } = useSearchSession(api);
+	const { query, setQuery, lastQuery, results, selected, preview, previewStatus, previewError, top, setTop, minimum, setMinimum, clearSearch, readPage, runSearch } = useSearchSession(api);
 	const [action, setAction] = useState<Operation | null>(null);
 
 	const [notice, setNotice] = useState<string | null>(null);
@@ -84,10 +84,10 @@ export function useWorkspace(api: DesktopAPI) {
 			setNotice(`Removed “${removing.name}” and its cached index. Your PDFs are unchanged.`);
 		});
 	}
-	async function indexFolder() {
+	async function indexFolder(rebuild = Boolean(library?.issue)) {
 		await perform("indexing", async () => {
 			setProgress(emptyIndexProgress());
-			const result = await api.index(Boolean(library?.issue));
+			const result = await api.index(rebuild);
 			setState((s) => ({ ...s, library: result.library }));
 			clearSearch();
 			const summary =
@@ -100,6 +100,11 @@ export function useWorkspace(api: DesktopAPI) {
 		});
 	}
 
+	async function checkLibrary() {
+		setError(null);
+		try { await api.checkLibrary(); }
+		catch (err) { setError(message(err)); }
+	}
 	async function search() {
 		if (!query.trim() || !library?.indexed || busy) return;
 		await perform("searching", async () => {
@@ -133,10 +138,10 @@ export function useWorkspace(api: DesktopAPI) {
 		if (selected) await perform("opening-pdf", () => api.openPDF(selected.filename, selected.page));
 	}
 	return {
-		state, action, query, setQuery, lastQuery, results, selected, preview, progress,
+		state, action, query, setQuery, lastQuery, results, selected, preview, previewStatus, previewError, progress,
 		error, notice, top, setTop, minimum, setMinimum,
 		editing, nameDraft, setNameDraft, removing, busy, ready, library, chooseFolder,
-		selectLibrary, renameLibrary, removeLibrary, indexFolder, search, restart,
+		selectLibrary, renameLibrary, removeLibrary, indexFolder, checkLibrary, search, restart,
 		loading, canSearch, cancel, selectPage, openPDF, startRename, startRemove,
 		cancelRename: () => setEditing(null), cancelRemove: () => setRemoving(null),
 	};

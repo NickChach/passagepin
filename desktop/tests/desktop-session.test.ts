@@ -163,3 +163,25 @@ test('automatic preview waits for a refresh that completed checking during searc
   assert.equal(session.state.operation, null);
   await session.stop();
 });
+
+test('manual checks restart checking without reopening the worker or library', async t => {
+  const pending: { signal: AbortSignal; resolve: (result: Awaited<ReturnType<LibraryChecker>>) => void }[] = [];
+  const { session, first, workers, store } = await setup(t, (_index, signal) => new Promise(resolve => pending.push({ signal, resolve })));
+  await assert.rejects(session.checkLibrary(), /available library/);
+  workers[0].indexed = true;
+  await session.chooseFolder(async () => first);
+  const library = session.state.library;
+  const saved = store.snapshot();
+  await session.checkLibrary();
+  assert.equal(pending[0].signal.aborted, true);
+  assert.equal(pending.length, 2);
+  assert.deepEqual(workers[0].opened, [first]);
+  assert.equal(session.state.library, library);
+  assert.deepEqual(store.snapshot(), saved);
+  await session.search('q', 10, 0);
+  pending[0].resolve({ changed_pages: 9, added_files: 0, removed_files: 0, errors: [], refresh: [] });
+  pending[1].resolve({ changed_pages: 1, added_files: 0, removed_files: 0, errors: [], refresh: [] });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(session.state.check?.changed_pages, 1);
+  await session.stop();
+});

@@ -70,6 +70,7 @@ export default function SearchForm({
 							<div className="operation-status" role="status">
 								<span>{operation === "reading" ? "Reading page…" : "Searching…"}</span>
 								<button
+									type="button"
 									className="text-button"
 									onClick={onCancel}
 								>

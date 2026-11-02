@@ -5,6 +5,9 @@ import Icon from "./Icon";
 interface PagePreviewProps {
 	selected: SearchResult | null;
 	preview: PageText | null;
+	previewStatus: "idle" | "reading" | "ready" | "cancelled" | "error";
+	previewError: string | null;
+	onRetry: () => void;
 	busy: boolean;
 	openingPDF: boolean;
 	onOpenPDF: () => void;
@@ -13,6 +16,7 @@ interface PagePreviewProps {
 export default function PagePreview({
 	selected,
 	preview,
+	previewStatus, previewError, onRetry,
 	busy,
 	openingPDF,
 	onOpenPDF,
@@ -40,9 +44,10 @@ export default function PagePreview({
 				{preview ? (
 					<p>{preview.text || "This page has no extractable text."}</p>
 				) : (
-					<p className="muted" role="status">
-						Reading page…
-					</p>
+					<div role="status">
+						<p className="muted">{previewStatus === "reading" ? "Reading page…" : previewStatus === "cancelled" ? "Page reading was cancelled." : previewStatus === "error" ? `Couldn’t read this page. ${previewError ?? ""}` : "Select a page to read."}</p>
+						{(previewStatus === "cancelled" || previewStatus === "error") && <button type="button" className="button secondary" disabled={busy || !selected} onClick={onRetry}>Retry reading page</button>}
+					</div>
 				)}
 			</div>
 			<footer>

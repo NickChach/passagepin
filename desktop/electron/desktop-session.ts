@@ -32,6 +32,14 @@ export class DesktopSession {
     if (this.state.operation) throw new Error('Cancel the current operation before restarting.');
     this.stopCheck(); await this.client?.stop(); await this.start(); return this.state;
   }
+  async checkLibrary(): Promise<void> {
+    await this.startup;
+    if (this.refreshDone) await this.refreshDone;
+    if (!this.state.ready || this.state.error || this.state.operation) throw new Error('Wait for the current operation before checking.');
+    this.requireLibrary();
+    if (!this.state.library!.indexed) throw new Error('Index this library before checking for changes.');
+    this.stopCheck(); this.startCheck();
+  }
   async cancel(): Promise<void> { await this.client?.cancel(); }
   async chooseFolder(pick: () => Promise<string | undefined>): Promise<Library | null> {
     return this.operation('opening', async () => {

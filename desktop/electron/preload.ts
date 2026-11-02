@@ -2,6 +2,10 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type { DesktopTransport, WorkerEvent } from './types';
 const api: DesktopTransport = {
   getState: () => ipcRenderer.invoke('state:get'),
+  appInfo: () => ipcRenderer.invoke('app:info'),
+  licenses: () => ipcRenderer.invoke('app:licenses'),
+  openChromiumNotices: () => ipcRenderer.invoke('app:chromium-notices'),
+  checkLibrary: () => ipcRenderer.invoke('library:check'),
   chooseFolder: () => ipcRenderer.invoke('library:choose'),
   selectLibrary: (id) => ipcRenderer.invoke('library:select', id),
   renameLibrary: (id, name) => ipcRenderer.invoke('library:rename', id, name),

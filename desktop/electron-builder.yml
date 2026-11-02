@@ -6,6 +6,14 @@ npmRebuild: false
 electronDist: node_modules/electron/dist
 # Native Go sidecars must live outside the app.asar archive.
 extraResources:
+  - from: node_modules/react/LICENSE
+    to: LICENSE.react.txt
+  - from: node_modules/react-dom/LICENSE
+    to: LICENSE.react-dom.txt
+  - from: node_modules/electron/dist/LICENSE
+    to: LICENSE.electron.txt
+  - from: ../LICENSE
+    to: LICENSE.passagepin.txt
   - from: resources/worker
     to: worker
 files:

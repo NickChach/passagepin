@@ -8,6 +8,9 @@ interface SearchResultsProps {
 	results: SearchResult[];
 	selected: SearchResult | null;
 	preview: PageText | null;
+	previewStatus: "idle" | "reading" | "ready" | "cancelled" | "error";
+	previewError: string | null;
+	onRetry: () => void;
 	busy: boolean;
 	openingPDF: boolean;
 	onSelect: (result: SearchResult) => void;
@@ -19,6 +22,7 @@ export default function SearchResults({
 	results,
 	selected,
 	preview,
+	previewStatus, previewError, onRetry,
 	busy,
 	openingPDF,
 	onSelect,
@@ -42,16 +46,15 @@ export default function SearchResults({
 				</div>
 			) : (
 				<div className="reading-layout">
-					<div className="results-list" role="list" aria-label="Matching pages">
+					<ol className="results-list" aria-label="Matching pages">
 						{results.map((result, position) => {
 							const active = selected?.filename === result.filename && selected.page === result.page;
 							return (
-								<button
-									role="listitem"
+								<li key={`${result.filename}:${result.page}`}><button
+									type="button"
 									aria-current={active ? "true" : undefined}
 									disabled={busy}
 									data-locked={busy || undefined}
-									key={`${result.filename}:${result.page}`}
 									className={`result-row ${active ? "selected" : ""}`}
 									onClick={() => onSelect(result)}
 								>
@@ -71,11 +74,11 @@ export default function SearchResults({
 											<span>Similarity {result.score.toFixed(3)}</span>
 										</span>
 									</span>
-								</button>
+								</button></li>
 							);
 						})}
-					</div>
-					<PagePreview selected={selected} preview={preview} busy={busy} openingPDF={openingPDF} onOpenPDF={onOpenPDF} />
+					</ol>
+					<PagePreview selected={selected} preview={preview} previewStatus={previewStatus} previewError={previewError} onRetry={onRetry} busy={busy} openingPDF={openingPDF} onOpenPDF={onOpenPDF} />
 				</div>
 			)}
 		</section>

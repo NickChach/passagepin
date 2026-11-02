@@ -40,6 +40,10 @@ export type LibraryCheck =
 export interface State extends SavedLibraries { check?: LibraryCheck | null; ready: WorkerReady | null; error: string | null; operation: Operation | null; library: Library | null; libraryError: string | null }
 export interface DesktopAPI {
   getState(): Promise<State>;
+  appInfo(): Promise<{ version: string; platform: string }>;
+  licenses(): Promise<string>;
+  openChromiumNotices(): Promise<void>;
+  checkLibrary(): Promise<void>;
   chooseFolder(): Promise<Library | null>;
   selectLibrary(id: string): Promise<Library>;
   renameLibrary(id: string, name: string): Promise<State>;

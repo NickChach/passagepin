@@ -1,5 +1,8 @@
 import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { ipcResult } from './ipc-result';
 import { WorkerClient } from './worker-client';
 import { LibraryStore } from './library-store';
@@ -42,6 +45,25 @@ function integer(value: unknown, name: string, maximum: number): number {
 function handlers(): void {
   const handle = (channel: string, listener: Parameters<typeof ipcMain.handle>[1]) =>
     ipcMain.handle(channel, (event, ...args) => ipcResult(() => listener(event, ...args)));
+  handle('app:info', (event) => {
+    trusted(event); return { version: app.getVersion(), platform: `${process.platform} ${process.arch}` };
+  });
+  handle('app:licenses', async (event) => {
+    trusted(event);
+    const own = app.isPackaged ? path.join(process.resourcesPath, 'LICENSE.passagepin.txt') : path.join(app.getAppPath(), '../LICENSE');
+    const electronLicense = app.isPackaged ? path.join(process.resourcesPath, 'LICENSE.electron.txt') : path.join(app.getAppPath(), 'node_modules/electron/dist/LICENSE');
+    const files = [own, electronLicense, ...['react', 'react-dom'].map(name => app.isPackaged ? path.join(process.resourcesPath, `LICENSE.${name}.txt`) : path.join(app.getAppPath(), 'node_modules', name, 'LICENSE'))];
+    const texts = await Promise.all(files.map(file => readFile(file, 'utf8')));
+    const worker = await promisify(execFile)(workerPath(), ['licenses'], { timeout: 10000, maxBuffer: 8 * 1024 * 1024 });
+    return texts.join('\n\n--------------------\n\n') + '\n\n' + worker.stdout;
+  });
+  handle('app:chromium-notices', async (event) => {
+    trusted(event);
+    const base = app.isPackaged ? path.dirname(app.getPath('exe')) : path.join(app.getAppPath(), 'node_modules/electron/dist');
+    const error = await shell.openPath(path.join(base, 'LICENSES.chromium.html'));
+    if (error) throw new Error(error);
+  });
+  handle('library:check', async (event) => { trusted(event); await session.checkLibrary(); });
   handle('state:get', (event) => { trusted(event); return session.state; });
   handle('library:choose', async (event) => {
     trusted(event);

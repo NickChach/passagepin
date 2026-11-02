@@ -1,5 +1,6 @@
 import { desktopAPI } from './desktop-api';
-import { useMemo } from 'react';
+import About from './components/About';
+import { useState, useMemo } from 'react';
 import { useWorkspace } from './use-workspace';
 import { useTheme } from './use-theme';
 import Sidebar from "./components/Sidebar";
@@ -13,14 +14,15 @@ import LibraryCheckNotice from "./components/LibraryCheckNotice";
 import Welcome from "./components/Welcome";
 
 export default function App() {
+	const [aboutOpen, setAboutOpen] = useState(false);
 	const api = useMemo(() => desktopAPI(window.pdfSearch), []);
 	const { theme, toggleTheme } = useTheme();
 	const {
 		state, action, query, setQuery, lastQuery, results,
-		selected, preview, progress, error, notice, top,
+		selected, preview, previewStatus, previewError, progress, error, notice, top,
 		setTop, minimum, setMinimum, editing, nameDraft, setNameDraft,
 		removing, busy, ready, library, chooseFolder, selectLibrary,
-		renameLibrary, removeLibrary, indexFolder, search, restart,
+		renameLibrary, removeLibrary, indexFolder, checkLibrary, search, restart,
 		loading, canSearch, cancel, selectPage, openPDF, startRename, startRemove, cancelRename, cancelRemove,
 	} = useWorkspace(api);
 	return (
@@ -52,7 +54,10 @@ export default function App() {
 						busy={busy}
 						loading={loading}
 						progress={progress}
-						onIndex={indexFolder}
+						onIndex={() => indexFolder()}
+						onRebuild={() => indexFolder(true)}
+						onCheck={checkLibrary}
+						checking={state.check?.status === "checking"}
 						onCancel={cancel}
 					/>
 				)}
@@ -63,6 +68,7 @@ export default function App() {
 					engineError={state.error}
 					onToggleTheme={toggleTheme}
 					onRestart={restart}
+						onAbout={() => setAboutOpen(true)}
 				/>
 			</Sidebar>
 			<main className="workspace">
@@ -87,7 +93,7 @@ export default function App() {
 						<span>{error || state.error || state.libraryError}</span>
 					</div>
 				)}
-				<LibraryCheckNotice check={state.check} busy={busy} onUpdate={indexFolder} />
+				<LibraryCheckNotice check={state.check} busy={busy} onUpdate={() => indexFolder()} />
 				{notice && (
 					<div className="message notice" role="status">
 						{notice}
@@ -100,6 +106,9 @@ export default function App() {
 						results={results}
 						selected={selected}
 						preview={preview}
+						previewStatus={previewStatus}
+						previewError={previewError}
+						onRetry={() => { if (selected) void selectPage(selected); }}
 						busy={busy}
 						openingPDF={action === "opening-pdf"}
 						onSelect={selectPage}
@@ -112,10 +121,11 @@ export default function App() {
 						ready={ready}
 						busy={busy}
 						onChooseFolder={chooseFolder}
-						onIndex={indexFolder}
+						onIndex={() => indexFolder()}
 					/>
 				)}
 			</main>
+			{aboutOpen && <About api={api} onClose={() => setAboutOpen(false)} />}
 		</div>
 	);
 }

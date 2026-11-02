@@ -8,6 +8,7 @@ interface SidebarFooterProps {
 	engineError: string | null;
 	onToggleTheme: () => void;
 	onRestart: () => void;
+	onAbout: () => void;
 }
 
 export default function SidebarFooter({
@@ -16,7 +17,7 @@ export default function SidebarFooter({
 	busy,
 	engineError,
 	onToggleTheme,
-	onRestart,
+	onRestart, onAbout,
 }: SidebarFooterProps) {
 	const statusLabel = engineError ? "Search engine stopped" : ready ? "Search engine ready" : "Preparing search engine…";
 	return (
@@ -47,6 +48,7 @@ export default function SidebarFooter({
 					Restart search engine
 				</button>
 			)}
+			<button type="button" className="text-button" onClick={onAbout}>About and help</button>
 			<p>
 				<Icon name="lock" size={14} />
 				Your data stay on this computer.

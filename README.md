@@ -222,7 +222,7 @@ remain available during the check. Only PDFs with changed file hashes are extrac
 with identical extracted text quietly refresh the file hashes. Changed pages, added/removed PDFs, and read errors produce an update notice
 with **Update index** and **Later** options. Updating re-extracts affected PDFs to verify the current source and embeds only changed/new
 searchable pages. No extracted text is retained between checking and updating. Checks are cancelled on library changes, updates, or quit;
-select the library again to check for further edits during a session.
+use **Check for changes** to check for further edits during a session without clearing search results.
 
 ## Go PDF reader
 
