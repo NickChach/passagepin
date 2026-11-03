@@ -503,7 +503,11 @@ func (d *document) implicitFontEncoding(fd, encoding dict, label string) (map[by
 		return applyFontDifferences(base, differences, label)
 	}
 	if desc["FontFile2"] != nil || desc["FontFile3"] != nil {
-		return nil, unsupported("missing-unicode-map", "embedded font needs an explicit BaseEncoding or ToUnicode map")
+		// The embedded base encoding is unavailable, but Differences explicitly
+		// identifies these slots independently of that base. Leave all other
+		// slots unmapped so decode rejects them rather than guessing StandardEncoding.
+		differences, _ := encoding["Differences"].(array) // validated above
+		return applyFontDifferences(map[byte]string{}, differences, label)
 	}
 	return simpleFontEncoding(encoding, label)
 }

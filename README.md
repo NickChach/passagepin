@@ -159,13 +159,14 @@ Text output has `SCORE`, `PAGE`, and `FILENAME` columns. JSON output is an array
 Filenames are relative to the directory indexed. Page numbers refer to the physical pages you navigate to in a PDF viewer, including cover
 and blank pages; they may differ from printed page labels.
 
-Run `index` again with the same directory and index path to update it. SHA-256 content hashes let it reuse unchanged PDFs; changed PDFs are
-re-extracted, with existing vectors reused for unchanged page text and changed/new pages embedded. Deleted PDFs and pages disappear.
+Run `index` again with the same directory and index path to update it. SHA-256 content hashes let it reuse unchanged, fully indexed PDFs.
+Changed and partially indexed PDFs are re-extracted, with existing vectors reused for unchanged page text and changed/new pages embedded.
+Deleted PDFs and pages disappear.
 Use `--rebuild` when changing the directory, model, or embedding pipeline. Page extraction failures
 are recorded individually; readable pages before and after a failed page remain searchable at their original physical page numbers. The
 report distinguishes partially indexed PDFs, skipped PDFs, and recovered cross-references. Failed pages are not counted as empty pages.
-Unreadable document structure, unsafe recovery, or failed documents with no searchable pages skip the complete PDF. Unchanged partial
-documents reuse their vectors and reports; use `--rebuild` to retry their failed pages. Supported cross-reference damage is recovered in
+Unreadable document structure, unsafe recovery, or failed documents with no searchable pages skip the complete PDF. Partially indexed
+documents are retried on each update, reusing vectors for pages whose extracted text is unchanged. Supported cross-reference damage is recovered in
 memory without changing source files. Cancellation, inference failures, directory traversal failures, and index write failures still abort
 the update and leave the previous saved index intact. Avoid running multiple index writers against the same index path at once.
 
@@ -250,8 +251,9 @@ supports:
   recover missing mappings from embedded Unicode cmap formats 4/12 and CIDToGIDMap; ambiguous and private-use mappings are excluded. The
   ZapfDingbats Differences use Adobe's dingbat glyph list. Verified proprietary glyph names in MathematicalPi-Three,
   Universal-GreekwithMathPi, AdvPSSym and AdvP4C4E74 have mappings scoped to those font families.
-- Encoding dictionaries without `BaseEncoding` apply their Differences to the embedded Type 1 program's own encoding. WinAnsi decoding
-  includes the PDF-specific bullet slots and alternate space/hyphen codes.
+- Encoding dictionaries without `BaseEncoding` apply their Differences to the embedded Type 1 program's own encoding. For embedded
+  Type 1C/TrueType fonts with an unsupported base encoding, explicitly named Differences entries remain usable; unspecified slots fail
+  extraction. WinAnsi decoding includes the PDF-specific bullet slots and alternate space/hyphen codes.
 - Partial ToUnicode maps in simple Type 1 fonts can fall back to a supported embedded encoding. Explicit `.notdef` slots produce a
   replacement character; unknown named glyphs still fail extraction. Redundant `ET` operators are tolerated, while showing text still
   requires a text object and a selected font.

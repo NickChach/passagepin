@@ -200,3 +200,47 @@ func TestExplicitBaseEncodingOverridesEmbeddedProgram(t *testing.T) {
 		t.Fatalf("text=%q", got)
 	}
 }
+
+func TestEmbeddedDifferencesWithoutBaseEncoding(t *testing.T) {
+	for _, embedded := range []struct{ field, subtype string }{{"FontFile3", "Type1"}, {"FontFile2", "TrueType"}} {
+		for _, tc := range []struct {
+			name, family, differences, raw, cmap, want string
+			fail                                       bool
+		}{
+			{"dingbat", "ZapfDingbats", "1 /space /a73", "02", "", "■", false},
+			{"integral", "MathematicalPi-Three", "1 /H20848", "01", "", "∫", false},
+			{"math", "Universal-GreekwithMathPi", "2 /H11001 /H11032 /H11005 /H11002", "02030405", "", "+′=−", false},
+			{"star", "AdvPSSym", "2 /C211", "02", "", "☆", false},
+			{"asterisk", "AdvP4C4E74", "2 /C3", "02", "", "*", false},
+			{"partial unicode", "ZapfDingbats", "1 /space /a73", "0102", "1 beginbfchar <01> <0058> endbfchar", "X■", false},
+			{"unicode wins", "ZapfDingbats", "2 /a73", "02", "1 beginbfchar <02> <0058> endbfchar", "X", false},
+			{"unspecified slot", "ZapfDingbats", "2 /a73", "0241", "", "", true},
+			{"partial unicode unspecified slot", "ZapfDingbats", "2 /a73", "0141", "1 beginbfchar <01> <0058> endbfchar", "", true},
+			{"unknown named glyph", "ZapfDingbats", "2 /unknownGlyph", "02", "", "", true},
+			{"unrelated family", "Unrelated", "2 /a73", "02", "", "", true},
+		} {
+			t.Run(embedded.field+"/"+tc.name, func(t *testing.T) {
+				objects := basicObjects(streamBody([]byte("BT /F1 12 Tf <"+tc.raw+"> Tj ET"), ""))
+				font := fmt.Sprintf("<< /Type /Font /Subtype /%s /BaseFont /ABCDEF+%s /Encoding << /Differences [%s] >> /FontDescriptor 6 0 R", embedded.subtype, tc.family, tc.differences)
+				// Character names suffice for extraction; no font outlines are needed.
+				objects = append(objects, fmt.Sprintf("<< /Type /FontDescriptor /%s 7 0 R >>", embedded.field), streamBody(nil, "/Subtype /Type1C"))
+				if tc.cmap != "" {
+					font += " /ToUnicode 8 0 R"
+					objects = append(objects, streamBody([]byte(tc.cmap), ""))
+				}
+				objects[3] = font + " >>"
+				e, _ := New()
+				defer e.Close()
+				got, err := e.PageText(context.Background(), fixture(t, objects), 1)
+				if tc.fail {
+					var unsupported *UnsupportedFeatureError
+					if got != "" || !errors.As(err, &unsupported) || unsupported.Feature != "missing-unicode-map" {
+						t.Fatalf("unmapped character: text=%q err=%v", got, err)
+					}
+				} else if err != nil || got != tc.want {
+					t.Fatalf("text=%q err=%v; want %q", got, err, tc.want)
+				}
+			})
+		}
+	}
+}

@@ -212,7 +212,7 @@ func TestPartialIndexRetainsHealthyPagesAndPersistsReports(t *testing.T) {
 		t.Fatal(err)
 	}
 	idx, stats, err = BuildConcurrent(context.Background(), root, "weights", true, loaded, factory, model, io.Discard, nil, Options{2, 2})
-	if err != nil || stats.Reused != 2 || stats.Recovered != 1 || stats.Skipped != 2 || stats.Partial != 1 || stats.FailedPages != 1 || stats.EmptyPages != 2 || len(idx.Documents) != 2 || idx.Documents[0].Filename != "partial.pdf" {
+	if err != nil || stats.Reused != 1 || stats.Indexed != 1 || stats.Recovered != 1 || stats.Skipped != 2 || stats.Partial != 1 || stats.FailedPages != 1 || stats.EmptyPages != 2 || len(idx.Documents) != 2 || idx.Documents[0].Filename != "partial.pdf" {
 		t.Fatalf("stale vectors survived failed update: stats=%+v err=%v", stats, err)
 	}
 	if err := testpdf.Write(partialPath, []string{"fixed"}); err != nil {

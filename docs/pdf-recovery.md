@@ -35,7 +35,9 @@ redundant `ET` operators. Verified proprietary glyph aliases are scoped to their
 font families, and ZapfDingbats uses Adobe's separate glyph list. A partial
 ToUnicode map can fall back to the supported embedded Type 1 encoding; explicit
 `.notdef` slots produce U+FFFD without guessing a character. Unknown named glyphs
-still fail extraction. Version 7 applied corrected
+still fail extraction. Embedded Type 1C/TrueType fonts without a supported base
+encoding can still use explicitly named Differences entries; unspecified slots
+remain unmapped, and ToUnicode takes precedence. Version 7 applied corrected
 spacing for transformed text and exclude whole documents when cross-reference
 errors persist after a recovery retry. Version 6 added font/inline-image fixes
 and partial indexing; version 5 added marked-content `ActualText` support and
@@ -49,8 +51,9 @@ from it are published. Page-local extraction failures retain independently
 readable pages and produce a partial report with physical page numbers. When a
 changed PDF becomes unreadable, its old vectors are excluded from the new index.
 Deleted PDFs disappear normally; skipped files are retried on the next update.
-Recovered and partially indexed documents can be reused by their original source
-hash, with their reports preserved; use `--rebuild` to retry cached failed pages.
+Recovered documents without page failures can be reused by their original source
+hash, with their reports preserved. Partially indexed PDFs are re-extracted on each
+update to retry failed pages; matching page-text hashes preserve existing vectors.
 
 The app saves the usable documents and file report atomically. The report
 contains filenames, outcomes and reasons, with physical page numbers when

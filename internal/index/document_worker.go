@@ -47,7 +47,9 @@ func (w *documentWorker) process(path string) {
 		return
 	}
 	old, exists := w.cache[rel]
-	if exists && old.SHA256 == digest {
+	// Retry partial documents even when the source is unchanged. Successful
+	// page hashes below still allow their existing vectors to be reused.
+	if exists && old.SHA256 == digest && len(old.Failures) == 0 {
 		w.notify(Progress{Phase: "reused", Filename: rel, Pages: old.PageCount, Recovered: old.Recovery != "", Partial: len(old.Failures) > 0})
 		select {
 		case w.documents <- documentResult{doc: old, reused: true}:

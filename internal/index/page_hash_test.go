@@ -66,14 +66,14 @@ func TestPageTextHashesPersistAndFollowPhysicalPages(t *testing.T) {
 		t.Fatalf("page hashes did not survive saving: %v", err)
 	}
 	reused, stats, err := build(loaded)
-	if err != nil || stats.Reused != 2 || calls.Load() != 6 || !reflect.DeepEqual(loaded.Documents, reused.Documents) {
-		t.Fatalf("unchanged index did not reuse hashes: stats=%+v calls=%d err=%v", stats, calls.Load(), err)
+	if err != nil || stats.Reused != 0 || stats.Indexed != 2 || calls.Load() != 6 || !reflect.DeepEqual(loaded.Documents, reused.Documents) {
+		t.Fatalf("partial retry did not reuse page hashes: stats=%+v calls=%d err=%v", stats, calls.Load(), err)
 	}
 	if err := os.WriteFile(filepath.Join(root, "00.pdf"), []byte("changed PDF"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	updated, stats, err := build(reused)
-	if err != nil || stats.Indexed != 1 || stats.Reused != 1 || calls.Load() != 6 {
+	if err != nil || stats.Indexed != 2 || stats.Reused != 0 || calls.Load() != 6 {
 		t.Fatalf("changed PDF was not reprocessed: stats=%+v calls=%d err=%v", stats, calls.Load(), err)
 	}
 	if updated.Documents[0].SHA256 != testDigest("changed PDF") || !reflect.DeepEqual(updated.Documents[0].PageTextSHA256, wantHashes) {
@@ -160,5 +160,67 @@ func TestSkippedPDFDoesNotRetainHashIfSourceChanges(t *testing.T) {
 	idx, stats, err := Build(context.Background(), root, "weights", true, nil, changedDuringOpen{}, &fakeModel{}, io.Discard)
 	if err != nil || stats.Skipped != 1 || len(idx.Issues) != 1 || idx.Issues[0].SHA256 != "" || !strings.Contains(idx.Issues[0].Reason, "source changed during indexing") {
 		t.Fatalf("changed source kept a hash: stats=%+v err=%v", stats, err)
+	}
+}
+
+func TestUnchangedPartialPDFRetriesAndReusesMatchingPageVectors(t *testing.T) {
+	root := makeFiles(t, 2)
+	stage := 0
+	var closed, calls atomic.Int32
+	factory := func() (Extractor, error) {
+		return &pipelinePDF{count: 4, closed: &closed, text: func(_ context.Context, path string, page int) (string, error) {
+			texts := []string{"stable", "recovered", "original", ""}
+			if filepath.Base(path) == "00.pdf" {
+				if stage == 0 && page == 2 || stage == 1 && page == 3 {
+					return "", errors.New("unreadable page")
+				}
+				if stage == 2 && page == 3 {
+					return "changed", nil
+				}
+			}
+			return texts[page-1], nil
+		}}, nil
+	}
+	model := embedFunc(func(context.Context, string) ([]float32, error) {
+		return unit(int(calls.Add(1))), nil
+	})
+	build := func(old *Index) *Index {
+		t.Helper()
+		idx, _, err := BuildConcurrent(context.Background(), root, "weights", true, old, factory, model, io.Discard, nil, Options{2, 2})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Exercise retries after loading a persisted format-9 index.
+		path := filepath.Join(t.TempDir(), "index.json")
+		if err := idx.Save(path); err != nil {
+			t.Fatal(err)
+		}
+		loaded, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return loaded
+	}
+	initial := build(nil)
+	if calls.Load() != 5 || initial.Counts().FailedPages != 1 {
+		t.Fatalf("initial index: calls=%d counts=%+v", calls.Load(), initial.Counts())
+	}
+	stage = 1
+	retried := build(initial)
+	partial := retried.Documents[0]
+	if calls.Load() != 6 || len(partial.Failures) != 1 || partial.Failures[0].Page != 3 || partial.PageTextSHA256[2] != "" || len(partial.Pages) != 2 || partial.Pages[1].Number != 2 {
+		t.Fatalf("retry did not recover page 2 and exclude newly failed page 3: calls=%d doc=%+v", calls.Load(), partial)
+	}
+	if !reflect.DeepEqual(initial.Documents[0].Pages[0], partial.Pages[0]) || !reflect.DeepEqual(initial.Documents[1], retried.Documents[1]) {
+		t.Fatal("retry changed stable vectors or the healthy document")
+	}
+	stage = 2
+	recovered := build(retried)
+	if calls.Load() != 7 || len(recovered.Issues) != 0 || recovered.Counts().Pages != 6 || recovered.Counts().EmptyPages != 2 || !reflect.DeepEqual(partial.Pages, recovered.Documents[0].Pages[:2]) {
+		t.Fatalf("recovery did not preserve existing pages and clear report: calls=%d counts=%+v", calls.Load(), recovered.Counts())
+	}
+	unchanged := build(recovered)
+	if calls.Load() != 7 || !reflect.DeepEqual(recovered.Documents, unchanged.Documents) {
+		t.Fatal("fully recovered documents were not reused")
 	}
 }
