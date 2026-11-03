@@ -8,7 +8,7 @@ export function desktopAPI(transport: DesktopTransport): DesktopAPI {
     getState: async () => unwrapResult(await transport.getState()),
     appInfo: async () => unwrapResult(await transport.appInfo()),
     licenses: async () => unwrapResult(await transport.licenses()),
-    openChromiumNotices: async () => unwrapResult(await transport.openChromiumNotices()),
+    chromiumNotices: async () => unwrapResult(await transport.chromiumNotices()),
     checkLibrary: async () => unwrapResult(await transport.checkLibrary()),
     chooseFolder: async () => unwrapResult(await transport.chooseFolder()),
     selectLibrary: async (id) => unwrapResult(await transport.selectLibrary(id)),

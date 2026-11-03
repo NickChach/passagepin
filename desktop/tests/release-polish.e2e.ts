@@ -48,6 +48,36 @@ test('manual checks preserve results, rebuilds require confirmation, and help wo
     await expect(about.locator('pre')).toContainText('MIT License');
     await expect(about.locator('pre')).toContainText('ONNX Runtime');
     await page.screenshot({ path: 'test-results/about-light.png' });
+    // The AppImage mount may be invisible to a sandboxed system browser. Read
+    // the real bundled notices through IPC and keep the entire text in-app.
+    await application.evaluate(({ shell }) => {
+      shell.openPath = async () => { throw new Error('Notices must stay inside PassagePin.'); };
+      shell.openExternal = async () => { throw new Error('Notices must stay inside PassagePin.'); };
+    });
+    const requests: string[] = [];
+    page.on('request', request => requests.push(request.url()));
+    const html = await readFile('node_modules/electron/dist/LICENSES.chromium.html', 'utf8');
+    const expected = await page.evaluate(source => {
+      const document = new DOMParser().parseFromString(source, 'text/html');
+      return {
+        titles: Array.from(document.querySelectorAll('.product .title'), node => node.textContent!.trim()),
+        licenses: Array.from(document.querySelectorAll('.product pre'), node => node.textContent!.trim()),
+        urls: Array.from(document.querySelectorAll('a[href]'), node => node.getAttribute('href')!).filter(url => url !== '#'),
+      };
+    }, html);
+    await about.getByRole('button', { name: 'Chromium notices', exact: true }).click();
+    const chromium = about.getByRole('region', { name: 'Chromium notices', exact: true }).locator('pre');
+    await expect(chromium).toContainText('The Chromium Project');
+    const content = await chromium.textContent();
+    for (const text of [...expected.titles, ...expected.licenses, ...expected.urls]) expect(content).toContain(text);
+    expect(await chromium.locator('*').count()).toBe(0);
+    expect(requests).toEqual([]);
+    await page.screenshot({ path: 'test-results/chromium-notices-light.png' });
+    await chromium.focus();
+    await page.keyboard.press('End');
+    expect(await chromium.evaluate(node => node.scrollHeight > node.clientHeight && node.scrollTop > 0)).toBe(true);
+    await about.getByRole('button', { name: 'License notices', exact: true }).click();
+    await expect(about.getByRole('region', { name: 'License notices', exact: true }).locator('pre')).toContainText('ONNX Runtime');
     await page.keyboard.press('Escape');
     await expect(about).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'About and help' })).toBeFocused();

@@ -259,8 +259,9 @@ PDF feature by itself.
 Cancelled or failed page previews show their state with **Retry reading page**.
 Search results retain native button semantics within an ordered list.
 **About and help** shows the installed version, platform, usage guidance and local
-license notices. Chromium notices open the bundled local notice file in the system
-viewer. These actions require no network access.
+license notices. Chromium notices are read from the bundled file and displayed as
+scrollable text in the same dialog, including component names, license text and
+source links. These actions require no network access or external browser.
 
 These interface changes preserve index format 9 and the embedding fingerprint;
 compatible 0.9 indexes do not require rebuilding.

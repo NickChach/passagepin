@@ -42,7 +42,7 @@ export interface DesktopAPI {
   getState(): Promise<State>;
   appInfo(): Promise<{ version: string; platform: string }>;
   licenses(): Promise<string>;
-  openChromiumNotices(): Promise<void>;
+  chromiumNotices(): Promise<string>;
   checkLibrary(): Promise<void>;
   chooseFolder(): Promise<Library | null>;
   selectLibrary(id: string): Promise<Library>;

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DesktopAPI } from '../../electron/types';
+import { chromiumNoticesText } from '../chromium-notices';
 
 export default function About({ api, onClose }: { api: DesktopAPI; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [info, setInfo] = useState<{ version: string; platform: string } | null>(null);
-  const [notices, setNotices] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [notices, setNotices] = useState<{ title: string; text: string } | null>(null);
+  const [loading, setLoading] = useState<'licenses' | 'chromium' | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     dialog.current?.showModal();
@@ -13,11 +14,14 @@ export default function About({ api, onClose }: { api: DesktopAPI; onClose: () =
     void api.appInfo().then(value => { if (active) setInfo(value); }).catch(err => { if (active) setError(String(err)); });
     return () => { active = false; };
   }, [api]);
-  async function showLicenses() {
-    setLoading(true); setError(null);
-    try { setNotices(await api.licenses()); }
+  async function showNotices(kind: 'licenses' | 'chromium') {
+    setLoading(kind); setError(null);
+    try {
+      const text = kind === 'licenses' ? await api.licenses() : chromiumNoticesText(await api.chromiumNotices());
+      setNotices({ title: kind === 'licenses' ? 'License notices' : 'Chromium notices', text });
+    }
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
-    finally { setLoading(false); }
+    finally { setLoading(null); }
   }
   return <dialog ref={dialog} className="about-dialog" aria-labelledby="about-title" onClose={onClose}>
     <h2 id="about-title">About PassagePin</h2>
@@ -33,11 +37,11 @@ export default function About({ api, onClose }: { api: DesktopAPI; onClose: () =
     </ul>
     <p>Packaged support: Linux x86-64 with glibc 2.38 or newer. Other platforms are not yet validated.</p>
     <div className="about-actions">
-      <button type="button" className="button secondary" disabled={loading} onClick={showLicenses}>{loading ? 'Loading notices…' : 'License notices'}</button>
-      <button type="button" className="button secondary" onClick={() => { void api.openChromiumNotices().catch(err => setError(String(err))); }}>Chromium notices</button>
+      <button type="button" className="button secondary" disabled={loading !== null} onClick={() => { void showNotices('licenses'); }}>{loading === 'licenses' ? 'Loading notices…' : 'License notices'}</button>
+      <button type="button" className="button secondary" disabled={loading !== null} onClick={() => { void showNotices('chromium'); }}>{loading === 'chromium' ? 'Loading notices…' : 'Chromium notices'}</button>
       <form method="dialog"><button autoFocus className="button primary">Close</button></form>
     </div>
     {error && <p role="alert">{error}</p>}
-    {notices && <section aria-label="License notices"><h3>License notices</h3><pre tabIndex={0}>{notices}</pre></section>}
+    {notices && <section aria-label={notices.title}><h3>{notices.title}</h3><pre tabIndex={0}>{notices.text}</pre></section>}
   </dialog>;
 }

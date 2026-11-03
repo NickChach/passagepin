@@ -60,8 +60,7 @@ function handlers(): void {
   handle('app:chromium-notices', async (event) => {
     trusted(event);
     const base = app.isPackaged ? path.dirname(app.getPath('exe')) : path.join(app.getAppPath(), 'node_modules/electron/dist');
-    const error = await shell.openPath(path.join(base, 'LICENSES.chromium.html'));
-    if (error) throw new Error(error);
+    return readFile(path.join(base, 'LICENSES.chromium.html'), 'utf8');
   });
   handle('library:check', async (event) => { trusted(event); await session.checkLibrary(); });
   handle('state:get', (event) => { trusted(event); return session.state; });
