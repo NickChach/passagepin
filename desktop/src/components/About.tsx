@@ -23,7 +23,7 @@ export default function About({ api, onClose }: { api: DesktopAPI; onClose: () =
     catch (err) { setError(err instanceof Error ? err.message : String(err)); }
     finally { setLoading(null); }
   }
-  return <dialog ref={dialog} className="about-dialog" aria-labelledby="about-title" onClose={onClose}>
+  return <dialog ref={dialog} className="about-dialog" aria-labelledby="about-title" closedby="any" onClose={onClose}>
     <h2 id="about-title">About PassagePin</h2>
     <p>{info ? `Version ${info.version} · ${info.platform}` : 'Loading version…'}</p>
     <p>Find relevant pages across your local PDF library. Indexing and searching work offline; your documents and queries stay on this computer.</p>
