@@ -150,7 +150,7 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 			cache[doc.Filename] = doc
 		}
 	}
-	idx := &Index{Version: Version, Root: root, NonRecursive: !recursive, Model: embedding.ModelID, Fingerprint: fingerprint, UpdatedAt: time.Now().UTC(), Documents: []Document{}}
+	idx := &Index{Version: Version, ExtractionRevision: pdf.ExtractionRevision, Root: root, NonRecursive: !recursive, Model: embedding.ModelID, Fingerprint: fingerprint, UpdatedAt: time.Now().UTC(), Documents: []Document{}}
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var firstErr error
@@ -238,7 +238,7 @@ func buildPipeline(ctx context.Context, root, fingerprint string, recursive bool
 		readers.Add(1)
 		go func(extractor Extractor) {
 			defer readers.Done()
-			worker := documentWorker{ctx: ctx, root: root, cache: cache, extractor: extractor, hash: hash, hashing: &hashing, extraction: &extraction, pages: pages, documents: documents, notify: notify, fail: fail, skip: skip}
+			worker := documentWorker{ctx: ctx, root: root, cache: cache, reuseFiles: old != nil && old.ExtractionRevision == pdf.ExtractionRevision, extractor: extractor, hash: hash, hashing: &hashing, extraction: &extraction, pages: pages, documents: documents, notify: notify, fail: fail, skip: skip}
 			for path := range files {
 				if ctx.Err() != nil {
 					return

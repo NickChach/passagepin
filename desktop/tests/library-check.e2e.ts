@@ -44,5 +44,23 @@ test('startup check refreshes annotation-only changes and prompts for changed pa
     const updated = JSON.parse(await readFile(indexPath, 'utf8'));
     expect(updated.documents[0].pages[0].vector).not.toEqual(original.documents[0].pages[0].vector);
     expect(updated.documents[0].pages[1].vector).toEqual(original.documents[0].pages[1].vector);
+
+    // A legacy format-9 snapshot can have successfully indexed text that an
+    // updated reader decodes differently, despite identical source PDF bytes.
+    await app.close();
+    const legacy = structuredClone(updated);
+    delete legacy.extraction_revision;
+    legacy.documents[0].page_text_sha256[0] = original.documents[0].page_text_sha256[0];
+    legacy.documents[0].pages[0].vector = original.documents[0].pages[0].vector;
+    await writeFile(indexPath, JSON.stringify(legacy));
+    app = await launch(); page = await app.firstWindow();
+    await expect(page.getByText('Library changes found.')).toBeVisible({ timeout: 60_000 });
+    expect((await readState(page)).check?.errors).toContain('The PDF reader has been updated. Update the index to refresh searchable text.');
+    expect((await readState(page)).library?.indexed).toBe(true);
+    await page.getByRole('button', { name: 'Update index', exact: true }).first().click();
+    await expect.poll(async () => (await readState(page)).check?.status).toBe('current');
+    const migrated = JSON.parse(await readFile(indexPath, 'utf8'));
+    expect(migrated.extraction_revision).toBeGreaterThan(0);
+    expect(migrated.documents).toEqual(updated.documents);
   } finally { await app.close(); await rm(work, { recursive: true, force: true }); }
 });

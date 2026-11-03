@@ -145,6 +145,12 @@ inference. It emits one JSON result containing `changed_pages`, `added_files`,
 file hashes). It never writes the index. Electron owns the cancellable process
 and discards results after switching libraries or updating the index.
 
+Format-9 snapshots record `extraction_revision`. Missing/older reader revisions
+remain loadable and searchable; checking returns an update notice in `errors`
+without scheduling metadata-only refreshes. An ordinary index update re-extracts
+all PDFs and reuses only matching page-text vectors before recording the current
+revision. This applies reader fixes to unchanged files without a full rebuild.
+
 The serialized worker method `refresh` accepts `{files: [...]}`. It checks the
 expected previous hashes, saves a snapshot with only those file hashes replaced,
 and returns the library summary. Electron sends only text-verified refreshes

@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/darkearl/semantic-search/internal/embedding"
+	"github.com/darkearl/semantic-search/internal/pdf"
 )
 
 // Version 9 requires page text hashes for safe incremental page reuse.
@@ -53,6 +54,9 @@ type Index struct {
 	Issues      []FileIssue `json:"issues,omitempty"`
 	// Older format-9 indexes default to recursive until their next update.
 	NonRecursive bool `json:"non_recursive,omitempty"`
+
+	// Zero identifies format-9 indexes written before reader revisions existed.
+	ExtractionRevision int `json:"extraction_revision,omitempty"`
 }
 
 type FileIssue struct {
@@ -139,6 +143,9 @@ func Load(path string) (*Index, error) {
 }
 
 func (idx *Index) Validate() error {
+	if idx.ExtractionRevision < 0 || idx.ExtractionRevision > pdf.ExtractionRevision {
+		return fmt.Errorf("incompatible PDF reader revision; rebuild with pdfsearch index --rebuild")
+	}
 	if idx.Version != Version || idx.Model != embedding.ModelID || idx.Fingerprint == "" || !utf8.ValidString(idx.Root) || !filepath.IsAbs(idx.Root) {
 		return fmt.Errorf("incompatible index; rebuild with pdfsearch index --rebuild")
 	}

@@ -21,6 +21,7 @@ type documentWorker struct {
 	ctx        context.Context
 	root       string
 	cache      map[string]Document
+	reuseFiles bool
 	extractor  Extractor
 	hash       func(string) (string, error)
 	hashing    *atomic.Int64
@@ -49,7 +50,7 @@ func (w *documentWorker) process(path string) {
 	old, exists := w.cache[rel]
 	// Retry partial documents even when the source is unchanged. Successful
 	// page hashes below still allow their existing vectors to be reused.
-	if exists && old.SHA256 == digest && len(old.Failures) == 0 {
+	if w.reuseFiles && exists && old.SHA256 == digest && len(old.Failures) == 0 {
 		w.notify(Progress{Phase: "reused", Filename: rel, Pages: old.PageCount, Recovered: old.Recovery != "", Partial: len(old.Failures) > 0})
 		select {
 		case w.documents <- documentResult{doc: old, reused: true}:

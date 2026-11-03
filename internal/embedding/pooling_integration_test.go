@@ -92,10 +92,19 @@ func TestDirectPoolingIntegration(t *testing.T) {
 		})
 	}
 	t.Run("cancel_between_windows", func(t *testing.T) {
-		ctx := &cancelAfterFirstWindow{Context: context.Background()}
-		got, err := m.Embed(ctx, strings.Repeat("water ", 255))
-		if got != nil || !errors.Is(err, context.Canceled) || ctx.checks != 3 {
-			t.Fatalf("got vector=%v err=%v context checks=%d", got, err, ctx.checks)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		completed := 0
+		got, err := m.embed(ctx, strings.Repeat("water ", 255), func(ids []int64, sum []float64) error {
+			if err := m.run(ids, sum); err != nil {
+				return err
+			}
+			completed++
+			cancel()
+			return nil
+		})
+		if got != nil || !errors.Is(err, context.Canceled) || completed != 1 {
+			t.Fatalf("got vector=%v err=%v completed windows=%d", got, err, completed)
 		}
 	})
 	t.Run("empty_text", func(t *testing.T) {
@@ -118,19 +127,4 @@ func TestDirectPoolingIntegration(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-}
-
-// Embed checks once before tokenization and once before each window. Cancel at
-// the third check so one full inference and pooling completes before stopping.
-type cancelAfterFirstWindow struct {
-	context.Context
-	checks int
-}
-
-func (c *cancelAfterFirstWindow) Err() error {
-	c.checks++
-	if c.checks >= 3 {
-		return context.Canceled
-	}
-	return nil
 }

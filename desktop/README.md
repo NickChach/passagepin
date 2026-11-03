@@ -263,5 +263,7 @@ license notices. Chromium notices are read from the bundled file and displayed a
 scrollable text in the same dialog, including component names, license text and
 source links. These actions require no network access or external browser.
 
-These interface changes preserve index format 9 and the embedding fingerprint;
-compatible 0.9 indexes do not require rebuilding.
+Index format 9 and the embedding fingerprint are preserved. Existing 0.9 indexes
+remain searchable, but the app prompts for an ordinary **Update index** when
+their PDF reader revision is older or absent. This re-extracts the PDFs and
+embeds only pages whose extracted text changed; a full rebuild is not required.

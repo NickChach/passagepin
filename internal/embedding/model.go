@@ -150,6 +150,12 @@ func Normalize(v []float32) error {
 // and session names are read-only; tensors, output slices and pooling are local
 // to each call. Model/environment construction and destruction remain serial.
 func (m *Model) Embed(ctx context.Context, text string) ([]float32, error) {
+	return m.embed(ctx, text, m.run)
+}
+
+// The window runner keeps cancellation tests tied to completed inference rather
+// than the number of cancellation polls made during tokenization.
+func (m *Model) embed(ctx context.Context, text string, run func([]int64, []float64) error) ([]float32, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -165,7 +171,7 @@ func (m *Model) Embed(ctx context.Context, text string) ([]float32, error) {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		if err := m.run(ids, sum); err != nil {
+		if err := run(ids, sum); err != nil {
 			return nil, err
 		}
 	}

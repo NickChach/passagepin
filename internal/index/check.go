@@ -43,6 +43,13 @@ func (idx *Index) check(ctx context.Context, newExtractor func() (checkExtractor
 	if err := idx.Validate(); err != nil {
 		return r, err
 	}
+	if err := ctx.Err(); err != nil {
+		return r, err
+	}
+	if idx.ExtractionRevision != pdf.ExtractionRevision {
+		r.Errors = append(r.Errors, "The PDF reader has been updated. Update the index to refresh searchable text.")
+		return r, nil
+	}
 	docs := make(map[string]Document)
 	known := make(map[string]bool)
 	skipped := make(map[string]string)

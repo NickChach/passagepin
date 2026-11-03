@@ -221,6 +221,11 @@ Model asset hashes and a pipeline version prevent searching an index with incomp
 
 Index format 9 requires these page hashes. Rebuild older indexes once before searching; saved libraries, theme, and source PDFs are preserved.
 
+Format-9 indexes also record the PDF reader revision. Existing 0.9 indexes without that field remain searchable, but need one ordinary
+**Update index** (or CLI `index`) to apply the latest decoding fixes. That update re-extracts PDFs even when their file hashes match,
+reuses vectors for matching page text, and embeds corrected pages. A full rebuild is not required. Future text-extraction changes must
+advance the reader revision so unchanged source files cannot retain outdated extracted text indefinitely.
+
 On launch and library selection, the desktop app checks the active library in a separate process without loading another model. Searches
 remain available during the check. Only PDFs with changed file hashes are extracted to compare page-text hashes. Annotation-only changes
 with identical extracted text quietly refresh the file hashes. Changed pages, added/removed PDFs, and read errors produce an update notice

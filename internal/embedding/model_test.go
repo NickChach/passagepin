@@ -62,3 +62,19 @@ func TestEmbedCancellationDuringTokenization(t *testing.T) {
 		}
 	}
 }
+
+func TestEmbedCancellationBetweenCompletedWindows(t *testing.T) {
+	m := &Model{tokenizer: testTokenizer(t)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	completed := 0
+	vector, err := m.embed(ctx, strings.Repeat("hello ", 255), func(_ []int64, sum []float64) error {
+		completed++
+		sum[0]++
+		cancel()
+		return nil
+	})
+	if vector != nil || !errors.Is(err, context.Canceled) || completed != 1 {
+		t.Fatalf("vector=%v err=%v completed=%d; want cancellation after one window", vector, err, completed)
+	}
+}

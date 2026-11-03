@@ -10,6 +10,10 @@ import (
 	"reflect"
 )
 
+// ExtractionRevision changes whenever extraction fixes can change successful
+// page text. Index updates must re-extract files last read by an older revision.
+const ExtractionRevision = 1
+
 // Extractor keeps one file open and caches only document structure. Page content
 // streams are decoded on demand. Each indexing worker owns its own Extractor;
 // an individual Extractor must not be shared by concurrent calls.
