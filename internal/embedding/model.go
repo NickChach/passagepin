@@ -153,7 +153,10 @@ func (m *Model) Embed(ctx context.Context, text string) ([]float32, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	windows := m.tokenizer.Windows(text)
+	windows, err := m.tokenizer.WindowsContext(ctx, text)
+	if err != nil {
+		return nil, err
+	}
 	if len(windows) == 0 {
 		return nil, ErrNoTokens
 	}

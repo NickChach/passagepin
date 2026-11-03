@@ -203,3 +203,45 @@ func TestRecursiveAndSymlinks(t *testing.T) {
 		}
 	}
 }
+
+func TestInvalidUTF8CannotReplaceSavedIndex(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "book.pdf"), []byte("pdf"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	idx, _, err := Build(context.Background(), root, "weights", true, nil, &fakePDF{pages: []string{"text"}}, &fakeModel{}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved := filepath.Join(t.TempDir(), "index.json")
+	if err := idx.Save(saved); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(saved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"document", "issue", "root"} {
+		next := *idx
+		invalid := "bad\xff.pdf"
+		switch field {
+		case "document":
+			next.Documents = append([]Document(nil), idx.Documents...)
+			next.Documents[0].Filename = invalid
+		case "issue":
+			next.Issues = []FileIssue{{Filename: invalid, Kind: "skipped", Reason: "unreadable"}}
+		case "root":
+			next.Root = filepath.Join(root, invalid)
+		}
+		if err := next.Save(saved); err == nil {
+			t.Fatalf("accepted invalid UTF-8 in %s", field)
+		}
+		after, err := os.ReadFile(saved)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(after) != string(before) {
+			t.Fatalf("failed save replaced index for %s", field)
+		}
+	}
+}

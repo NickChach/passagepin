@@ -3,6 +3,7 @@ package embedding
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -30,6 +31,34 @@ func TestEmbedTokenlessInputPreservesCancellation(t *testing.T) {
 		vector, err := m.Embed(ctx, "\u200b")
 		if vector != nil || !errors.Is(err, ctx.Err()) || errors.Is(err, ErrNoTokens) {
 			t.Fatalf("vector=%v err=%v; want %v", vector, err, ctx.Err())
+		}
+	}
+}
+
+// Cancel deterministically while tokenization is in progress, without depending
+// on machine speed or constructing an ONNX session.
+type tokenizationCancelContext struct {
+	context.Context
+	cancel context.CancelFunc
+	polls  int
+}
+
+func (c *tokenizationCancelContext) Err() error {
+	c.polls++
+	if c.polls == 10 {
+		c.cancel()
+	}
+	return c.Context.Err()
+}
+func TestEmbedCancellationDuringTokenization(t *testing.T) {
+	m := &Model{tokenizer: testTokenizer(t)}
+	for _, text := range []string{strings.Repeat("[CLS]", 100000), strings.Repeat("hello ", 100000), strings.Repeat("a", 100000)} {
+		base, cancel := context.WithCancel(context.Background())
+		ctx := &tokenizationCancelContext{Context: base, cancel: cancel}
+		vector, err := m.Embed(ctx, text)
+		cancel()
+		if vector != nil || !errors.Is(err, context.Canceled) {
+			t.Fatalf("vector=%v err=%v", vector, err)
 		}
 	}
 }

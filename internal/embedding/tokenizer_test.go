@@ -1,6 +1,7 @@
 package embedding
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -62,5 +63,30 @@ func TestLongPageKeepsTail(t *testing.T) {
 	last := windows[len(windows)-1]
 	if count != 601 || last[len(last)-2] != 7 {
 		t.Fatalf("lost tail: count=%d last=%v", count, last)
+	}
+}
+
+func TestAdjacentSpecialTokensPreserveOrdinaryText(t *testing.T) {
+	tok := testTokenizer(t)
+	got := tok.Windows("hello[MASK][CLS][SEP][UNK][PAD][MASKx]world")
+	want := []int64{2, 5, 4, 2, 3, 1, 0, 1, 1, 1, 7, 3}
+	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func BenchmarkRepeatedSpecialTokens(b *testing.B) {
+	tok, err := ReadTokenizer(strings.NewReader("[PAD]\n[UNK]\n[CLS]\n[SEP]\n[MASK]\n"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, size := range []int{10000, 100000} {
+		text := strings.Repeat("[CLS]", size)
+		b.Run(fmt.Sprint(size), func(b *testing.B) {
+			b.SetBytes(int64(len(text)))
+			for i := 0; i < b.N; i++ {
+				tok.Windows(text)
+			}
+		})
 	}
 }

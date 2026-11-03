@@ -350,6 +350,38 @@ func (d *document) loadFont(v value) (*font, error) {
 	if err != nil && f.unicode == nil {
 		return nil, err
 	}
+	// An encoding dictionary without BaseEncoding modifies the embedded
+	// program's encoding. Keep this lazy when ToUnicode covers the shown text.
+	if encoding, ok := enc.(dict); ok && encoding["BaseEncoding"] == nil && fd["FontDescriptor"] != nil {
+		load := func() (map[byte]string, error) { return d.implicitFontEncoding(fd, encoding, f.label) }
+		if f.unicode == nil {
+			f.encoding, err = load()
+			if err != nil {
+				return nil, err
+			}
+		} else {
+			if fd["Widths"] == nil {
+				f.useStandardWidths(false)
+			}
+			f.encoding = nil
+			f.fallback = func() (map[int]string, error) {
+				encoding, err := load()
+				if err != nil {
+					return nil, err
+				}
+				if fd["Widths"] == nil {
+					f.encoding = encoding
+					f.widths = map[int]float64{}
+					f.useStandardWidths(false)
+				}
+				result := make(map[int]string, len(encoding))
+				for code, text := range encoding {
+					result[int(code)] = text
+				}
+				return result, nil
+			}
+		}
+	}
 	if enc == nil && f.unicode == nil {
 		base, _ := fd["BaseFont"].(name)
 		if strings.Contains(string(base), "Symbol") || strings.Contains(string(base), "ZapfDingbats") {
@@ -443,6 +475,37 @@ func (d *document) loadFont(v value) (*font, error) {
 		}
 	}
 	return f, nil
+}
+
+// implicitFontEncoding applies Differences over the font program's own map.
+func (d *document) implicitFontEncoding(fd, encoding dict, label string) (map[byte]string, error) {
+	if _, err := simpleFontEncoding(encoding, label); err != nil {
+		return nil, err
+	}
+	desc, err := d.dictionary(fd["FontDescriptor"])
+	if err != nil {
+		return nil, err
+	}
+	if raw := desc["FontFile"]; raw != nil {
+		v, err := d.resolve(raw)
+		if err != nil {
+			return nil, err
+		}
+		s, ok := v.(*stream)
+		if !ok {
+			return nil, fmt.Errorf("FontFile is not a stream")
+		}
+		base, err := d.type1Encoding(s)
+		if err != nil {
+			return nil, err
+		}
+		differences, _ := encoding["Differences"].(array) // validated by simpleFontEncoding
+		return applyFontDifferences(base, differences, label)
+	}
+	if desc["FontFile2"] != nil || desc["FontFile3"] != nil {
+		return nil, unsupported("missing-unicode-map", "embedded font needs an explicit BaseEncoding or ToUnicode map")
+	}
+	return simpleFontEncoding(encoding, label)
 }
 
 func (d *document) type1Encoding(s *stream) (map[byte]string, error) {
@@ -647,6 +710,13 @@ func simpleFontEncoding(v value, fontName string) (map[byte]string, error) {
 				result[byte(i)] = string(r)
 			}
 		}
+		if base == "WinAnsiEncoding" {
+			// PDF WinAnsi differs from Windows-1252 in these slots (Annex D).
+			for _, code := range []byte{0x7f, 0x81, 0x8d, 0x8f, 0x90, 0x9d} {
+				result[code] = "•"
+			}
+			result[0xa0], result[0xad] = " ", "-"
+		}
 	case "StandardEncoding":
 		for i := 32; i < 127; i++ {
 			result[byte(i)] = string(rune(i))
@@ -662,6 +732,10 @@ func simpleFontEncoding(v value, fontName string) (map[byte]string, error) {
 	default:
 		return nil, unsupported("font-encoding", "unsupported font encoding /%s", base)
 	}
+	return applyFontDifferences(result, differences, fontName)
+}
+
+func applyFontDifferences(result map[byte]string, differences array, fontName string) (map[byte]string, error) {
 	code := -1
 	for _, v := range differences {
 		if n, ok := integer(v); ok {

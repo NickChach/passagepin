@@ -169,6 +169,9 @@ documents reuse their vectors and reports; use `--rebuild` to retry their failed
 memory without changing source files. Cancellation, inference failures, directory traversal failures, and index write failures still abort
 the update and leave the previous saved index intact. Avoid running multiple index writers against the same index path at once.
 
+PDF file and folder paths must be valid UTF-8. If indexing encounters a path with invalid bytes (possible on Linux), it stops with a rename
+error and preserves the previous saved index. Rename that file or folder before retrying.
+
 Library checks preserve the indexing scope, including `--recursive=false`. For an existing format-9 index created before scope was recorded,
 run an update with the original `--recursive=false` option once; no rebuild is needed. Older indexes default to recursive checks until updated.
 
@@ -247,6 +250,8 @@ supports:
   recover missing mappings from embedded Unicode cmap formats 4/12 and CIDToGIDMap; ambiguous and private-use mappings are excluded. The
   ZapfDingbats Differences use Adobe's dingbat glyph list. Verified proprietary glyph names in MathematicalPi-Three,
   Universal-GreekwithMathPi, AdvPSSym and AdvP4C4E74 have mappings scoped to those font families.
+- Encoding dictionaries without `BaseEncoding` apply their Differences to the embedded Type 1 program's own encoding. WinAnsi decoding
+  includes the PDF-specific bullet slots and alternate space/hyphen codes.
 - Partial ToUnicode maps in simple Type 1 fonts can fall back to a supported embedded encoding. Explicit `.notdef` slots produce a
   replacement character; unknown named glyphs still fail extraction. Redundant `ET` operators are tolerated, while showing text still
   requires a text object and a selected font.

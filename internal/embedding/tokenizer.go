@@ -2,6 +2,7 @@ package embedding
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -61,9 +62,16 @@ func punctuation(r rune) bool {
 		r >= 123 && r <= 126 || unicode.IsPunct(r)
 }
 
-func basicTokens(text string) []string {
+func basicTokensContext(ctx context.Context, text string) ([]string, error) {
 	var cleaned strings.Builder
-	for _, r := range text {
+	nextCheck := 0
+	for i, r := range text {
+		if i >= nextCheck {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			nextCheck = i + 4096
+		}
 		switch {
 		case r == 0 || r == unicode.ReplacementChar:
 			continue
@@ -81,6 +89,9 @@ func basicTokens(text string) []string {
 	}
 	var result []string
 	for _, word := range strings.Fields(cleaned.String()) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var token strings.Builder
 		flush := func() {
 			if token.Len() > 0 {
@@ -88,7 +99,14 @@ func basicTokens(text string) []string {
 				token.Reset()
 			}
 		}
-		for _, r := range norm.NFD.String(strings.ToLower(word)) {
+		nextCheck = 0
+		for i, r := range norm.NFD.String(strings.ToLower(word)) {
+			if i >= nextCheck {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+				nextCheck = i + 4096
+			}
 			if unicode.Is(unicode.Mn, r) {
 				continue
 			}
@@ -101,7 +119,7 @@ func basicTokens(text string) []string {
 		}
 		flush()
 	}
-	return result
+	return result, ctx.Err()
 }
 
 func (t *Tokenizer) wordPieces(word string) []int64 {
@@ -134,26 +152,60 @@ func (t *Tokenizer) wordPieces(word string) []int64 {
 // Windows never drops text. A page remains one index entry even when it needs
 // several bounded model calls. Special tokens count toward the model limit.
 func (t *Tokenizer) Windows(text string) [][]int64 {
+	windows, _ := t.WindowsContext(context.Background(), text)
+	return windows
+}
+
+// WindowsContext preserves the same tokens while allowing long pages to stop
+// during tokenization, before inference begins.
+func (t *Tokenizer) WindowsContext(ctx context.Context, text string) ([][]int64, error) {
 	var ids []int64
-	// Preserve BERT's added special tokens before lowercasing and punctuation splitting.
-	for len(text) > 0 {
-		pos, special := len(text), ""
-		for _, candidate := range []string{"[CLS]", "[SEP]", "[UNK]", "[PAD]", "[MASK]"} {
-			if i := strings.Index(text, candidate); i >= 0 && i < pos {
-				pos, special = i, candidate
-			}
+	appendText := func(fragment string) error {
+		tokens, err := basicTokensContext(ctx, fragment)
+		if err != nil {
+			return err
 		}
-		for _, token := range basicTokens(text[:pos]) {
+		for _, token := range tokens {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			ids = append(ids, t.wordPieces(token)...)
 		}
-		if special == "" {
+		return nil
+	}
+	// Visit each byte once; only '[' can begin an added BERT special token.
+	start, nextCheck := 0, 0
+	for pos := 0; pos < len(text); pos++ {
+		if pos >= nextCheck {
+			if err := ctx.Err(); err != nil {
+				return nil, err
+			}
+			nextCheck = pos + 4096
+		}
+		if text[pos] != '[' {
+			continue
+		}
+		for _, special := range []string{"[CLS]", "[SEP]", "[UNK]", "[PAD]", "[MASK]"} {
+			if !strings.HasPrefix(text[pos:], special) {
+				continue
+			}
+			if err := appendText(text[start:pos]); err != nil {
+				return nil, err
+			}
+			ids = append(ids, t.vocab[special])
+			pos += len(special) - 1
+			start = pos + 1
 			break
 		}
-		ids = append(ids, t.vocab[special])
-		text = text[pos+len(special):]
+	}
+	if err := appendText(text[start:]); err != nil {
+		return nil, err
 	}
 	var windows [][]int64
 	for start := 0; start < len(ids); start += MaxTokens - 2 {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		end := min(start+MaxTokens-2, len(ids))
 		window := make([]int64, 0, end-start+2)
 		window = append(window, t.cls)
@@ -161,5 +213,5 @@ func (t *Tokenizer) Windows(text string) [][]int64 {
 		window = append(window, t.sep)
 		windows = append(windows, window)
 	}
-	return windows
+	return windows, ctx.Err()
 }

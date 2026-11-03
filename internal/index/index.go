@@ -12,6 +12,7 @@ import (
 	"slices"
 	"sort"
 	"time"
+	"unicode/utf8"
 
 	"github.com/darkearl/semantic-search/internal/embedding"
 )
@@ -138,14 +139,14 @@ func Load(path string) (*Index, error) {
 }
 
 func (idx *Index) Validate() error {
-	if idx.Version != Version || idx.Model != embedding.ModelID || idx.Fingerprint == "" || !filepath.IsAbs(idx.Root) {
+	if idx.Version != Version || idx.Model != embedding.ModelID || idx.Fingerprint == "" || !utf8.ValidString(idx.Root) || !filepath.IsAbs(idx.Root) {
 		return fmt.Errorf("incompatible index; rebuild with pdfsearch index --rebuild")
 	}
 	seen := make(map[string]bool)
 	partial := make(map[string]FileIssue)
 	reports := make(map[[2]string]bool)
 	for _, issue := range idx.Issues {
-		if !filepath.IsLocal(issue.Filename) || issue.Filename == "." || (issue.Kind != "skipped" && issue.Kind != "recovered" && issue.Kind != "partial") || issue.Reason == "" || issue.Page < 0 || issue.IndexedPages < 0 {
+		if !utf8.ValidString(issue.Filename) || !filepath.IsLocal(issue.Filename) || issue.Filename == "." || (issue.Kind != "skipped" && issue.Kind != "recovered" && issue.Kind != "partial") || issue.Reason == "" || issue.Page < 0 || issue.IndexedPages < 0 {
 			return fmt.Errorf("invalid index file issue")
 		}
 		if issue.SHA256 != "" && (issue.Kind != "skipped" || !validSHA256(issue.SHA256)) {
@@ -167,7 +168,7 @@ func (idx *Index) Validate() error {
 		}
 	}
 	for _, doc := range idx.Documents {
-		if doc.Filename == "." || !filepath.IsLocal(doc.Filename) || seen[doc.Filename] || len(doc.SHA256) != 64 || doc.PageCount < 1 {
+		if !utf8.ValidString(doc.Filename) || doc.Filename == "." || !filepath.IsLocal(doc.Filename) || seen[doc.Filename] || len(doc.SHA256) != 64 || doc.PageCount < 1 {
 			return fmt.Errorf("invalid index document %q", doc.Filename)
 		}
 		seen[doc.Filename] = true

@@ -148,3 +148,55 @@ func TestRedundantEndTextDoesNotDiscardReadableText(t *testing.T) {
 		}
 	}
 }
+
+func TestDifferencesUseEmbeddedBaseEncoding(t *testing.T) {
+	program := "/Encoding 256 array 0 1 255 {1 index exch /.notdef put} for dup 65 /B put dup 66 /C put readonly def currentfile eexec"
+	for _, partial := range []bool{false, true} {
+		objects := basicObjects(streamBody([]byte("BT /F1 12 Tf (AB) Tj ET"), ""))
+		font := "<< /Type /Font /Subtype /Type1 /BaseFont /Example /Encoding << /Differences [65 /A] >> /FontDescriptor 6 0 R"
+		objects = append(objects, "<< /Type /FontDescriptor /FontFile 7 0 R >>", streamBody([]byte(program), ""))
+		if partial {
+			font += " /ToUnicode 8 0 R"
+			objects = append(objects, streamBody([]byte("1 beginbfchar <41> <0058> endbfchar"), ""))
+		}
+		objects[3] = font + " >>"
+		want := "AC"
+		if partial {
+			want = "XC"
+		}
+		if got := extract(t, fixture(t, objects), 1); got != want {
+			t.Fatalf("partial=%v: got %q want %q", partial, got, want)
+		}
+	}
+}
+
+func TestWinAnsiPDFSpecificSlots(t *testing.T) {
+	objects := basicObjects(streamBody([]byte("BT /F1 12 Tf <7f818d8f909da0ad> Tj ET"), ""))
+	objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+	if got := extract(t, fixture(t, objects), 1); got != "•••••• -" {
+		t.Fatalf("text=%q", got)
+	}
+	// An explicit Differences entry must still override the predefined mapping.
+	objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding << /BaseEncoding /WinAnsiEncoding /Differences [129 /A] >> >>"
+	if got := extract(t, fixture(t, objects), 1); got != "•A•••• -" {
+		t.Fatalf("text=%q", got)
+	}
+}
+
+func TestImplicitDifferencesKeepToUnicodeLazyAndStandardWidths(t *testing.T) {
+	objects := basicObjects(streamBody([]byte("BT /F1 12 Tf 40 700 Td (W) Tj 1 0 0 1 51.328 700 Tm (W) Tj ET"), ""))
+	objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding << /Differences [65 /A] >> /ToUnicode 6 0 R /FontDescriptor 7 0 R >>"
+	objects = append(objects, streamBody([]byte("1 beginbfchar <57> <0057> endbfchar"), ""), "(broken descriptor)")
+	if got := extract(t, fixture(t, objects), 1); got != "WW" {
+		t.Fatalf("text=%q", got)
+	}
+}
+
+func TestExplicitBaseEncodingOverridesEmbeddedProgram(t *testing.T) {
+	objects := basicObjects(streamBody([]byte("BT /F1 12 Tf (AB) Tj ET"), ""))
+	objects[3] = "<< /Type /Font /Subtype /Type1 /BaseFont /Example /Encoding << /BaseEncoding /WinAnsiEncoding /Differences [65 /X] >> /FontDescriptor 6 0 R >>"
+	objects = append(objects, "<< /FontFile (broken unused program) >>")
+	if got := extract(t, fixture(t, objects), 1); got != "XB" {
+		t.Fatalf("text=%q", got)
+	}
+}
