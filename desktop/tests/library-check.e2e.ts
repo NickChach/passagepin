@@ -56,6 +56,8 @@ test('startup check refreshes annotation-only changes and prompts for changed pa
     app = await launch(); page = await app.firstWindow();
     await expect(page.getByText('Library changes found.')).toBeVisible({ timeout: 60_000 });
     expect((await readState(page)).check?.errors).toContain('The PDF reader has been updated. Update the index to refresh searchable text.');
+    await page.getByText('Index update details (1)', { exact: true }).click();
+    await expect(page.getByText('The PDF reader has been updated. Update the index to refresh searchable text.', { exact: true })).toBeVisible();
     expect((await readState(page)).library?.indexed).toBe(true);
     await page.getByRole('button', { name: 'Update index', exact: true }).first().click();
     await expect.poll(async () => (await readState(page)).check?.status).toBe('current');

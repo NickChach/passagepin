@@ -22,6 +22,19 @@ func testDigest(text string) string {
 	return fmt.Sprintf("%x", sum)
 }
 
+func TestPageTextHashCompatibility(t *testing.T) {
+	for _, tc := range []struct{ text, want string }{
+		{"", "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+		{"  alpha \n", "304d14bfeff9d20c7d86e32efe45a94993047355e950a019f47065529964a867"},
+		{"Καλημέρα 🌍", "f711818b648a03cdf7501922fed1d6b78ecdc064433cc200ace6cb3c21cc7e0d"},
+		{"\u200b", "f4e48e664a603543865edc77bbc76dd1dd53dc9d0c30f651bbad7c8231091348"},
+	} {
+		if got := pageTextHash(tc.text); got != tc.want {
+			t.Fatalf("page hash changed for %q: got %s want %s", tc.text, got, tc.want)
+		}
+	}
+}
+
 func TestPageTextHashesPersistAndFollowPhysicalPages(t *testing.T) {
 	root := makeFiles(t, 2)
 	texts := []string{"  alpha \n", "", " \t", "\u200b", "", "omega"}

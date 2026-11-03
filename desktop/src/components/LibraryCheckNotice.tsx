@@ -24,7 +24,7 @@ export default function LibraryCheckNotice({ check, busy, onUpdate }: { check?: 
         <p className="library-check-hint">Results reflect the last saved index until you update.</p>
       </>}
       {Boolean(check.errors.length) && <details className="library-check-errors">
-        <summary>Files needing attention ({check.errors.length})</summary>
+        <summary>Index update details ({check.errors.length})</summary>
         <ul>{check.errors.map((error, i) => <li key={i}>{error}</li>)}</ul>
       </details>}
     </div>

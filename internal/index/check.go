@@ -2,7 +2,6 @@ package index
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -112,7 +111,7 @@ func (idx *Index) check(ctx context.Context, newExtractor func() (checkExtractor
 				r.Errors = append(r.Errors, fmt.Sprintf("%s page %d: %v", rel, page, err))
 				break
 			}
-			digest := fmt.Sprintf("%x", sha256.Sum256([]byte(text)))
+			digest := pageTextHash(text)
 			if page > len(old.PageTextSHA256) || old.PageTextSHA256[page-1] != digest {
 				changes++
 			}

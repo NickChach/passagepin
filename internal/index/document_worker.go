@@ -2,8 +2,6 @@ package index
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -97,8 +95,7 @@ func (w *documentWorker) process(path string) {
 		// Hash the exact extracted UTF-8 text, even for blank or tokenless
 		// pages. Failed extractions retain the empty slot for that page.
 		start = time.Now()
-		pageHash := sha256.Sum256([]byte(text))
-		doc.PageTextSHA256[page-1] = hex.EncodeToString(pageHash[:])
+		doc.PageTextSHA256[page-1] = pageTextHash(text)
 		w.hashing.Add(int64(time.Since(start)))
 		if page <= len(old.PageTextSHA256) && old.PageTextSHA256[page-1] == doc.PageTextSHA256[page-1] {
 			if previous, ok := oldPages[page]; ok {

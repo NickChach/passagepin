@@ -3,12 +3,9 @@ package embedding
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
-	"io"
 	"math"
-	"os"
 	"path/filepath"
 
 	ort "github.com/yalue/onnxruntime_go"
@@ -30,27 +27,6 @@ type Model struct {
 	session   *ort.DynamicAdvancedSession
 }
 
-// Fingerprint binds an index to the exact vocabulary, weights and pooling policy.
-func Fingerprint(dir string) (string, error) {
-	h := sha256.New()
-	io.WriteString(h, ModelID+"\x00"+Pipeline+"\x00")
-	for _, name := range []string{"vocab.txt", "model.onnx"} {
-		f, err := os.Open(filepath.Join(dir, name))
-		if err != nil {
-			return "", fmt.Errorf("open model asset: %w (run pdfsearch download)", err)
-		}
-		_, err = io.Copy(h, f)
-		closeErr := f.Close()
-		if err != nil {
-			return "", err
-		}
-		if closeErr != nil {
-			return "", closeErr
-		}
-	}
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
-}
-
 func Open(dir, library string, threads int) (*Model, error) {
 	t, err := LoadTokenizer(filepath.Join(dir, "vocab.txt"))
 	if err != nil {
@@ -64,20 +40,6 @@ func Open(dir, library string, threads int) (*Model, error) {
 type Assets struct {
 	Directory           string
 	Weights, Vocabulary []byte
-}
-
-func (a Assets) Fingerprint() (string, error) {
-	if a.Directory != "" {
-		return Fingerprint(a.Directory)
-	}
-	if len(a.Weights) == 0 || len(a.Vocabulary) == 0 {
-		return "", fmt.Errorf("model assets are missing")
-	}
-	h := sha256.New()
-	io.WriteString(h, ModelID+"\x00"+Pipeline+"\x00")
-	h.Write(a.Vocabulary)
-	h.Write(a.Weights)
-	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 func (a Assets) Open(library string, threads int) (*Model, error) {
