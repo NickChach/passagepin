@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import type { Operation } from '../../electron/types';
 import Icon from "./Icon";
 
@@ -32,6 +33,16 @@ export default function SearchForm({
 	onSearch,
 	onCancel,
 }: SearchFormProps) {
+	const options = useRef<HTMLDetailsElement>(null);
+	useEffect(() => {
+		function closeOutside(event: PointerEvent) {
+			if (options.current?.open && event.target instanceof Node && !options.current.contains(event.target)) {
+				options.current.open = false;
+			}
+		}
+		document.addEventListener('pointerdown', closeOutside, true);
+		return () => document.removeEventListener('pointerdown', closeOutside, true);
+	}, []);
 	const cancellable = operation === "searching" || operation === "reading";
 	return (
 		<header className="search-header">
@@ -79,7 +90,7 @@ export default function SearchForm({
 							</div>
 						)}
 					</div>
-					<details>
+					<details ref={options}>
 						<summary>Search options</summary>
 						<div className="options-panel">
 							<label>
