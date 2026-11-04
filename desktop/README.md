@@ -136,9 +136,11 @@ cancellation is read independently of active work. Within indexing, up to two
 independent PDF readers overlap extraction with up to two embedding workers on
 the resident CPU model session. Electron uses one native inference thread per
 operation to avoid competing thread pools. Queued page text is bounded, and
-progress events from different PDFs can interleave. The sidebar keeps a separate
-filename, page count, and progress bar for each active PDF until its completion
-event arrives. Reused PDFs update a count without replacing active rows.
+progress events from different PDFs can interleave. The main workspace keeps a
+separate filename, page count, and progress bar for each active PDF until its
+completion event arrives. Indexing status and cancellation remain at the top of
+the workspace while the sidebar shows that indexing is active. Reused PDFs update
+a count without replacing active rows.
 Cancellation takes effect
 between bounded model calls and waits for workers to finish. Successful index
 updates are saved atomically; fatal failures and cancellation keep the last saved

@@ -51,8 +51,13 @@ export default function PagePreview({
 				)}
 			</div>
 			<footer>
-				PDF page numbers count from the start of the file, including covers and blank pages. They may differ
-				from the book’s printed page numbers.
+				<details>
+					<summary>About PDF page numbers</summary>
+					<p>
+						PDF page numbers count from the start of the file, including covers and blank pages. They may differ
+						from the book’s printed page numbers.
+					</p>
+				</details>
 			</footer>
 		</article>
 	);

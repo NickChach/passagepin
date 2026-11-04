@@ -1,17 +1,13 @@
 import { useEffect, useState } from "react";
 import type { Library } from "../../electron/types";
-import type { IndexProgress } from "../index-progress";
 import Icon from "./Icon";
-import IndexingProgress from "./IndexingProgress";
 
 interface IndexPanelProps {
 	library: Library;
 	ready: boolean;
 	busy: boolean;
 	loading: boolean;
-	progress: IndexProgress;
 	onIndex: () => void;
-	onCancel: () => void;
 	onRebuild: () => void;
 	onCheck: () => void;
 	checking: boolean;
@@ -22,9 +18,8 @@ export default function IndexPanel({
 	ready,
 	busy,
 	loading,
-	progress,
 	onIndex,
-	onCancel, onRebuild, onCheck, checking,
+	onRebuild, onCheck, checking,
 }: IndexPanelProps) {
 	const [confirmRebuild, setConfirmRebuild] = useState(false);
 	useEffect(() => setConfirmRebuild(false), [library.directory, loading]);
@@ -35,8 +30,8 @@ export default function IndexPanel({
 		<div className="sidebar-section index-section">
 			<div className="section-heading">
 				<h2>Search index</h2>
-				<span className={`status-tag ${library.indexed ? "available" : ""}`}>
-					{library.indexed ? "Ready" : "Not indexed"}
+				<span className={`status-tag ${library.indexed && !loading ? "available" : ""}`}>
+					{loading ? "Indexing…" : library.indexed ? "Ready" : "Not indexed"}
 				</span>
 			</div>
 			{library.indexed && (
@@ -62,7 +57,7 @@ export default function IndexPanel({
 				onClick={onIndex}
 			>
 				<Icon name="refresh" size={17} />
-				{library.issue ? "Rebuild index" : library.indexed ? "Update index" : "Index folder"}
+				{loading ? "Indexing…" : library.issue ? "Rebuild index" : library.indexed ? "Update index" : "Index folder"}
 			</button>
 			{library.indexed && <div className="index-tools">
 				<button type="button" className="text-button" disabled={!ready || busy || checking} data-locked={(ready && busy && !checking) || undefined} onClick={onCheck}>{checking ? "Checking for changes…" : "Check for changes"}</button>
@@ -79,7 +74,6 @@ export default function IndexPanel({
 					pages need OCR.
 				</p>
 			)}
-			{loading && <IndexingProgress progress={progress} onCancel={onCancel} />}
 		</div>
 	);
 }

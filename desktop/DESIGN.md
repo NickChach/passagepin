@@ -31,3 +31,13 @@ and paths are left aligned; the current library uses annotation blue and the
 existing selected-row background. Rename forms and removal confirmation appear
 inline, with explicit text actions. The established palette, typography and
 search layout stay consistent as the list grows.
+
+During indexing, a sticky workspace panel shows concurrent PDF progress and a
+visible Cancel indexing action. The sidebar marks the index as busy, and controls
+locked for this longer operation are visibly disabled. Initial indexing replaces
+the getting-started prompt until it completes or stops.
+
+Search results use a compact header and share the remaining window height with
+the page reader. Results and page text scroll independently; expanded notices or
+reports can scroll the workspace while preserving a usable minimum reader height.
+The page-number explanation is available under About PDF page numbers.

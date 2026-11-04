@@ -90,3 +90,61 @@ test('main content and reports cannot move or scroll the library sidebar', async
     }
   } finally { await application.close(); await rm(work, { recursive: true, force: true }); }
 });
+
+test('long results and page text fit the desktop reading area at minimum window size', async () => {
+  const work = await mkdtemp(path.join(os.tmpdir(), 'passagepin-reader-layout-'));
+  const application = await electron.launch({ args: [path.resolve('.')], env: { ...process.env,
+    PDFSEARCH_E2E: '1', PDFSEARCH_E2E_DATA: path.join(work, 'profile'), XDG_CACHE_HOME: path.join(work, 'cache') } });
+  try {
+    const page = await application.firstWindow();
+    await expect(page.getByText('Search engine ready')).toBeVisible({ timeout: 60_000 });
+    const snapshot: State = { ...await readState(page), activeLibraryId: 'research',
+      libraries: [{ id: 'research', name: 'Research', directory: work }],
+      library: { directory: work, indexed: true, documents: 20, pages: 1000, empty_pages: 0, updated_at: null } };
+    await application.evaluate(({ ipcMain }, state) => {
+      const handle = (name: string, result: (...args: unknown[]) => unknown) => {
+        ipcMain.removeHandler(name);
+        ipcMain.handle(name, (_event, ...args) => ({ ok: true, value: result(...args) }));
+      };
+      handle('state:get', () => state);
+      handle('library:search', query => ({ query, results: Array.from({ length: 20 }, (_, i) => ({
+        filename: 'Books/A long document filename about financial history and economic crises.pdf', page: i + 1, score: .8 - i / 100,
+      })) }));
+      handle('library:page', (filename, page) => ({ filename, page, text: 'Evidence from financial history explains how institutions respond to crises. '.repeat(200) }));
+    }, snapshot);
+    await page.reload();
+    await page.getByRole('textbox', { name: 'Search subject' }).fill('financial history');
+    await page.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(page.getByText('20 ranked pages')).toBeVisible();
+    for (const size of [{ width: 1280, height: 820 }, { width: 940, height: 650 }]) {
+      await application.evaluate(({ BrowserWindow }, next) => BrowserWindow.getAllWindows()[0].setContentSize(next.width, next.height), size);
+      const workspace = page.getByRole('main');
+      await expect.poll(() => workspace.evaluate(e => e.scrollHeight - e.clientHeight)).toBeLessThanOrEqual(1);
+      const paper = page.locator('.page-paper');
+      expect((await paper.boundingBox())!.height).toBeGreaterThan(250);
+      expect(await paper.evaluate(e => e.scrollHeight > e.clientHeight)).toBe(true);
+      expect(await page.locator('.results-list').evaluate(e => e.scrollHeight > e.clientHeight)).toBe(true);
+      await expect(page.getByRole('button', { name: 'Open PDF', exact: true })).toBeInViewport();
+      await page.screenshot({ path: path.resolve(`test-results/reader-${size.width}.png`) });
+    }
+    // Updating an existing index must keep cancellation visible even when the
+    // retained reader is scrolled to the end of the workspace.
+    await application.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows()[0];
+      window.webContents.send('worker:event', { kind: 'operation', data: 'indexing' });
+      window.webContents.send('worker:event', { kind: 'progress', data: {
+        phase: 'embedding', filename: 'Research.pdf', page: 1, pages: 200,
+      } });
+    });
+    const cancel = page.getByRole('button', { name: 'Cancel indexing', exact: true });
+    await expect(cancel).toBeVisible();
+    await page.getByRole('main').evaluate(e => { e.scrollTop = e.scrollHeight; });
+    await expect(cancel).toBeInViewport();
+    await expect(page.getByRole('list', { name: 'Matching pages' })).toBeVisible();
+    await page.screenshot({ path: path.resolve('test-results/reader-indexing-small.png') });
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.send('worker:event', { kind: 'operation', data: null }));
+    await expect(cancel).toHaveCount(0);
+    await page.getByText('About PDF page numbers', { exact: true }).click();
+    await expect(page.getByText(/They may differ/)).toBeVisible();
+  } finally { await application.close(); await rm(work, { recursive: true, force: true }); }
+});

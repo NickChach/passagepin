@@ -12,6 +12,7 @@ import IndexReport from "./components/IndexReport";
 import SearchResults from "./components/SearchResults";
 import LibraryCheckNotice from "./components/LibraryCheckNotice";
 import Welcome from "./components/Welcome";
+import IndexingProgress from "./components/IndexingProgress";
 
 export default function App() {
 	const [aboutOpen, setAboutOpen] = useState(false);
@@ -26,7 +27,7 @@ export default function App() {
 		loading, canSearch, cancel, selectPage, openPDF, startRename, startRemove, cancelRename, cancelRemove,
 	} = useWorkspace(api);
 	return (
-		<div className="app-shell">
+		<div className="app-shell" data-indexing={loading || undefined}>
 			<Sidebar>
 				<LibraryManager
 					libraries={state.libraries}
@@ -53,12 +54,10 @@ export default function App() {
 						ready={ready}
 						busy={busy}
 						loading={loading}
-						progress={progress}
 						onIndex={() => indexFolder()}
 						onRebuild={() => indexFolder(true)}
 						onCheck={checkLibrary}
 						checking={state.check?.status === "checking"}
-						onCancel={cancel}
 					/>
 				)}
 				<SidebarFooter
@@ -71,7 +70,8 @@ export default function App() {
 						onAbout={() => setAboutOpen(true)}
 				/>
 			</Sidebar>
-			<main className="workspace">
+			<main className={`workspace${lastQuery ? " has-results" : ""}${loading ? " is-indexing" : ""}`}>
+				{loading && <IndexingProgress progress={progress} onCancel={cancel} />}
 				<SearchForm
 					query={query}
 					top={top}
@@ -114,7 +114,7 @@ export default function App() {
 						onSelect={selectPage}
 						onOpenPDF={openPDF}
 					/>
-				) : (
+				) : !loading && (
 					<Welcome
 						library={library}
 						hasSavedLibraries={Boolean(state.libraries?.length)}

@@ -84,6 +84,15 @@ test('concurrent PDFs keep separate progress rows through completion, cancellati
     await theme.click();
     await page.screenshot({ path: path.resolve('test-results/indexing-progress-dark.png'), fullPage: true });
 
+    await application.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setContentSize(940, 650));
+    await page.getByRole('complementary').evaluate(element => { element.scrollTop = element.scrollHeight; });
+    await expect(panel.getByRole('button', { name: 'Cancel indexing' })).toBeInViewport();
+    await expect(page.getByRole('region', { name: 'Getting started' })).toHaveCount(0);
+    const indexButton = page.getByRole('complementary').getByRole('button', { name: 'Indexing…', exact: true });
+    await expect(indexButton).toBeDisabled();
+    await expect(indexButton).toHaveCSS('opacity', '0.48');
+    await page.screenshot({ path: path.resolve('test-results/indexing-progress-small.png') });
+
     // A last-page event is not completion: inference may still be running.
     await emit([{ phase: 'embedding', filename: first, page: 10, pages: 10 }]);
     await expect(bar(first)).toHaveAttribute('value', '10');

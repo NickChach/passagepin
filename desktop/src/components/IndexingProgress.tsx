@@ -12,7 +12,10 @@ export default function IndexingProgress({
 	const activePDFs = [...progress.active.values()];
 	return (
 		<section className="index-progress" aria-label="Indexing progress">
-			<strong role="status">Indexing PDFs…</strong>
+			<header>
+				<strong role="status">Indexing PDFs…</strong>
+				<button type="button" className="button secondary" onClick={onCancel}>Cancel indexing</button>
+			</header>
 			{activePDFs.length > 0 ? (
 				<ul className="index-file-list" aria-label="PDFs being indexed">
 					{activePDFs.map((file) => (
@@ -42,13 +45,6 @@ export default function IndexingProgress({
 					{progress.recovered > 0 ? `, ${progress.recovered} using recovery` : ""}
 				</p>
 			)}
-			<button
-				type="button"
-				className="button secondary wide index-cancel"
-				onClick={onCancel}
-			>
-				Cancel indexing
-			</button>
 		</section>
 	);
 }
