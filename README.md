@@ -1,7 +1,7 @@
 # PassagePin
 
 PassagePin finds discussions of a subject in a directory of PDFs, with a desktop interface and a Go CLI named `pdfsearch`. It embeds each
-page with Hugging Face's `sentence-transformers/all-MiniLM-L6-v2`, stores one 384-dimensional vector per nonempty page, and ranks pages by
+page with Hugging Face's `sentence-transformers/all-MiniLM-L6-v2`, stores one 384-dimensional vector per non-empty page, and ranks pages by
 cosine similarity to the query. Results include the relative filename and the physical PDF page number, starting at 1.
 
 The CLI, PDF parser, text extractor and BERT tokenizer are written in Go. PDF extraction is implemented in this repository and needs no
@@ -19,7 +19,7 @@ filesystem access.
 Page previews show the first 200,000 bytes of extracted text, followed by a shortening notice for longer pages. Indexing still uses the full
 extracted page text. Open the PDF in your system viewer to read the complete page.
 
-The current desktop packages target Linux x86-64 with glibc 2.38 or newer. Visit
+The current desktop packages target Linux x86-64 with FUSE and glibc 2.38 or newer. Visit
 [GitHub Releases](https://github.com/NickChach/passagepin/releases) for available versions and assets. For a local 1.0.0 build, from the
 directory containing the AppImage:
 
@@ -161,20 +161,20 @@ and blank pages; they may differ from printed page labels.
 
 Run `index` again with the same directory and index path to update it. SHA-256 content hashes let it reuse unchanged, fully indexed PDFs.
 Changed and partially indexed PDFs are re-extracted, with existing vectors reused for unchanged page text and changed/new pages embedded.
-Deleted PDFs and pages disappear.
-Use `--rebuild` when changing the directory, model, or embedding pipeline. Page extraction failures
-are recorded individually; readable pages before and after a failed page remain searchable at their original physical page numbers. The
-report distinguishes partially indexed PDFs, skipped PDFs, and recovered cross-references. Failed pages are not counted as empty pages.
-Unreadable document structure, unsafe recovery, or failed documents with no searchable pages skip the complete PDF. Partially indexed
-documents are retried on each update, reusing vectors for pages whose extracted text is unchanged. Supported cross-reference damage is recovered in
-memory without changing source files. Cancellation, inference failures, directory traversal failures, and index write failures still abort
-the update and leave the previous saved index intact. Avoid running multiple index writers against the same index path at once.
+Deleted PDFs and pages disappear. Use `--rebuild` when changing the directory, model, or embedding pipeline. Page extraction failures are
+recorded individually; readable pages before and after a failed page remain searchable at their original physical page numbers. The report
+distinguishes partially indexed PDFs, skipped PDFs, and recovered cross-references. Failed pages are not counted as empty pages. Unreadable
+document structure, unsafe recovery, or failed documents with no searchable pages skip the complete PDF. Partially indexed documents are
+retried on each update, reusing vectors for pages whose extracted text is unchanged. Supported cross-reference damage is recovered in memory
+without changing source files. Cancellation, inference failures, directory traversal failures, and index write failures still abort the
+update and leave the previous saved index intact. Avoid running multiple index writers against the same index path at once.
 
 PDF file and folder paths must be valid UTF-8. If indexing encounters a path with invalid bytes (possible on Linux), it stops with a rename
 error and preserves the previous saved index. Rename that file or folder before retrying.
 
 Library checks preserve the indexing scope, including `--recursive=false`. For an existing format-9 index created before scope was recorded,
-run an update with the original `--recursive=false` option once; no rebuild is needed. Older indexes default to recursive checks until updated.
+run an update with the original `--recursive=false` option once; no rebuild is needed. Older indexes default to recursive checks until
+updated.
 
 Indexing overlaps PDF reading with embedding. By default, up to two independent PDF readers feed a bounded queue to up to two embedding
 workers (one of each when Go's CPU limit is one). Each model operation uses one inference thread. Use `--index-workers`,
@@ -214,17 +214,18 @@ embedding pipeline is applied to the query.
 
 There is exactly **one stored vector and one result per page**. Windows are an internal inference detail and never span pages. The model
 never receives a whole PDF. Only a bounded number of pages' text and model outputs are held during embedding. The persistent index contains
-filenames, hashes, page numbers, and vectors; it does not store extracted page text. Each indexed PDF has a SHA-256 file hash and, for
-each successfully extracted physical page, a SHA-256 hash of the exact extracted text, including blank or tokenless pages. Failed pages have
-no text hash. A stable file hash is also recorded for a skipped PDF when it could be read; pages from a wholly skipped PDF are not retained.
+filenames, hashes, page numbers, and vectors; it does not store extracted page text. Each indexed PDF has a SHA-256 file hash and, for each
+successfully extracted physical page, a SHA-256 hash of the exact extracted text, including blank or tokenless pages. Failed pages have no
+text hash. A stable file hash is also recorded for a skipped PDF when it could be read; pages from a wholly skipped PDF are not retained.
 Model asset hashes and a pipeline version prevent searching an index with incompatible query embeddings.
 
-Index format 9 requires these page hashes. Rebuild older indexes once before searching; saved libraries, theme, and source PDFs are preserved.
+Index format 9 requires these page hashes. Rebuild older indexes once before searching; saved libraries, theme, and source PDFs are
+preserved.
 
 Format-9 indexes also record the PDF reader revision. Existing 0.9 indexes without that field remain searchable, but need one ordinary
-**Update index** (or CLI `index`) to apply the latest decoding fixes. That update re-extracts PDFs even when their file hashes match,
-reuses vectors for matching page text, and embeds corrected pages. A full rebuild is not required. Future text-extraction changes must
-advance the reader revision so unchanged source files cannot retain outdated extracted text indefinitely.
+**Update index** (or CLI `index`) to apply the latest decoding fixes. That update re-extracts PDFs even when their file hashes match, reuses
+vectors for matching page text, and embeds corrected pages. A full rebuild is not required. Future text-extraction changes must advance the
+reader revision so unchanged source files cannot retain outdated extracted text indefinitely.
 
 On launch and library selection, the desktop app checks the active library in a separate process without loading another model. Searches
 remain available during the check. Only PDFs with changed file hashes are extracted to compare page-text hashes. Annotation-only changes
@@ -256,8 +257,8 @@ supports:
   recover missing mappings from embedded Unicode cmap formats 4/12 and CIDToGIDMap; ambiguous and private-use mappings are excluded. The
   ZapfDingbats Differences use Adobe's dingbat glyph list. Verified proprietary glyph names in MathematicalPi-Three,
   Universal-GreekwithMathPi, AdvPSSym and AdvP4C4E74 have mappings scoped to those font families.
-- Encoding dictionaries without `BaseEncoding` apply their Differences to the embedded Type 1 program's own encoding. For embedded
-  Type 1C/TrueType fonts with an unsupported base encoding, explicitly named Differences entries remain usable; unspecified slots fail
+- Encoding dictionaries without `BaseEncoding` apply their Differences to the embedded Type 1 program's own encoding. For embedded Type
+  1C/TrueType fonts with an unsupported base encoding, explicitly named Differences entries remain usable; unspecified slots fail
   extraction. WinAnsi decoding includes the PDF-specific bullet slots and alternate space/hyphen codes.
 - Partial ToUnicode maps in simple Type 1 fonts can fall back to a supported embedded encoding. Explicit `.notdef` slots produce a
   replacement character; unknown named glyphs still fail extraction. Redundant `ET` operators are tolerated, while showing text still
@@ -284,8 +285,9 @@ until the reader advances to the next PDF.
 
 The [PDF extraction corpus](internal/pdf/testdata/corpus/README.md) contains reproducible, self-authored MIT-licensed fixtures with expected
 page text, explicit unsupported-feature outcomes, and a tracked column-order limitation. Run
-`go test -v ./internal/pdf -run TestExtractionCorpus` to check it. Index format version 9 requires rebuilding older indexes to establish mandatory page-text hashes. It retains the PDF extraction fixes
-from formats 7 and 8, including publisher symbol mappings and safe cross-reference recovery.
+`go test -v ./internal/pdf -run TestExtractionCorpus` to check it. Index format version 9 requires rebuilding older indexes to establish
+mandatory page-text hashes. It retains the PDF extraction fixes from formats 7 and 8, including publisher symbol mappings and safe
+cross-reference recovery.
 
 ## Practical limits
 
